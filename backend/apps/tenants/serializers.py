@@ -4,7 +4,7 @@
 
 from rest_framework import serializers
 from django.contrib.auth.models import User
-from .models import Tenant, TenantResourceUsage, TenantOperationLog
+from .models import Tenant, TenantResourceUsage, TenantOperationLog, Stakeholder, DataCenter
 
 
 class TenantSerializer(serializers.ModelSerializer):
@@ -186,3 +186,169 @@ class TenantListSerializer(serializers.ModelSerializer):
             'start_time', 'end_time', 'created_at',
             'created_by_name', 'is_active'
         ]
+
+
+class StakeholderSerializer(serializers.ModelSerializer):
+    """干系人序列化器"""
+
+    tenant_name = serializers.CharField(source='tenant.name', read_only=True)
+    stakeholder_type_display = serializers.CharField(source='get_stakeholder_type_display', read_only=True)
+
+    # 加密字段的只读属性
+    phone = serializers.ReadOnlyField()
+    email = serializers.ReadOnlyField()
+
+    class Meta:
+        model = Stakeholder
+        fields = [
+            'id', 'tenant', 'tenant_name',
+            'stakeholder_type', 'stakeholder_type_display',
+            'name', 'phone', 'email',
+            'position', 'department', 'is_primary', 'notes',
+            'created_at', 'updated_at'
+        ]
+        read_only_fields = ['id', 'created_at', 'updated_at']
+
+    def validate_name(self, value):
+        """验证姓名"""
+        if len(value.strip()) < 2:
+            raise serializers.ValidationError("姓名至少需要2个字符")
+        return value.strip()
+
+    def validate_phone(self, value):
+        """验证电话号码"""
+        if value and not value.replace('+', '').replace('-', '').replace(' ', '').isdigit():
+            raise serializers.ValidationError("电话号码格式不正确")
+        return value
+
+    def validate_email(self, value):
+        """验证邮箱"""
+        if value and '@' not in value:
+            raise serializers.ValidationError("邮箱格式不正确")
+        return value
+
+
+class StakeholderCreateSerializer(serializers.ModelSerializer):
+    """干系人创建序列化器"""
+
+    class Meta:
+        model = Stakeholder
+        fields = [
+            'tenant', 'stakeholder_type', 'name', 'phone', 'email',
+            'position', 'department', 'is_primary', 'notes'
+        ]
+
+    def validate_name(self, value):
+        """验证姓名"""
+        if len(value.strip()) < 2:
+            raise serializers.ValidationError("姓名至少需要2个字符")
+        return value.strip()
+
+    def validate_phone(self, value):
+        """验证电话号码"""
+        if value and not value.replace('+', '').replace('-', '').replace(' ', '').isdigit():
+            raise serializers.ValidationError("电话号码格式不正确")
+        return value
+
+    def validate_email(self, value):
+        """验证邮箱"""
+        if value and '@' not in value:
+            raise serializers.ValidationError("邮箱格式不正确")
+        return value
+
+
+class StakeholderUpdateSerializer(serializers.ModelSerializer):
+    """干系人更新序列化器"""
+
+    class Meta:
+        model = Stakeholder
+        fields = [
+            'stakeholder_type', 'name', 'phone', 'email',
+            'position', 'department', 'is_primary', 'notes'
+        ]
+
+    def validate_name(self, value):
+        """验证姓名"""
+        if len(value.strip()) < 2:
+            raise serializers.ValidationError("姓名至少需要2个字符")
+        return value.strip()
+
+    def validate_phone(self, value):
+        """验证电话号码"""
+        if value and not value.replace('+', '').replace('-', '').replace(' ', '').isdigit():
+            raise serializers.ValidationError("电话号码格式不正确")
+        return value
+
+    def validate_email(self, value):
+        """验证邮箱"""
+        if value and '@' not in value:
+            raise serializers.ValidationError("邮箱格式不正确")
+        return value
+
+
+class DataCenterSerializer(serializers.ModelSerializer):
+    """数据中心序列化器"""
+
+    data_center_type_display = serializers.CharField(source='get_data_center_type_display', read_only=True)
+
+    class Meta:
+        model = DataCenter
+        fields = [
+            'id', 'name', 'code',
+            'data_center_type', 'data_center_type_display',
+            'location', 'description', 'is_active',
+            'created_at', 'updated_at'
+        ]
+        read_only_fields = ['id', 'created_at', 'updated_at']
+
+    def validate_name(self, value):
+        """验证数据中心名称"""
+        if len(value.strip()) < 2:
+            raise serializers.ValidationError("数据中心名称至少需要2个字符")
+        return value.strip()
+
+    def validate_code(self, value):
+        """验证数据中心代码"""
+        if not value.isalnum():
+            raise serializers.ValidationError("数据中心代码只能包含字母和数字")
+        return value.upper()
+
+
+class DataCenterCreateSerializer(serializers.ModelSerializer):
+    """数据中心创建序列化器"""
+
+    class Meta:
+        model = DataCenter
+        fields = [
+            'name', 'code', 'data_center_type',
+            'location', 'description', 'is_active'
+        ]
+
+    def validate_name(self, value):
+        """验证数据中心名称"""
+        if len(value.strip()) < 2:
+            raise serializers.ValidationError("数据中心名称至少需要2个字符")
+        return value.strip()
+
+    def validate_code(self, value):
+        """验证数据中心代码"""
+        if not value.isalnum():
+            raise serializers.ValidationError("数据中心代码只能包含字母和数字")
+        return value.upper()
+
+
+class DataCenterUpdateSerializer(serializers.ModelSerializer):
+    """数据中心更新序列化器"""
+
+    class Meta:
+        model = DataCenter
+        fields = [
+            'name', 'data_center_type',
+            'location', 'description', 'is_active'
+        ]
+
+    def validate_name(self, value):
+        """验证数据中心名称"""
+        if len(value.strip()) < 2:
+            raise serializers.ValidationError("数据中心名称至少需要2个字符")
+        return value.strip()

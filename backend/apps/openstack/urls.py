@@ -14,7 +14,9 @@ from .views import (
     check_connection,
     sync_tenant,
     tenant_usage,
-    create_tenant_resources_view
+    create_tenant_resources_view,
+    cloud_overview,
+    resource_usage_report
 )
 
 router = DefaultRouter()
@@ -31,6 +33,8 @@ urlpatterns = [
 
     # 自定义URL
     path('check-connection/', check_connection, name='openstack-check-connection'),
+    path('cloud-overview/', cloud_overview, name='cloud-overview'),
+    path('usage-report/', resource_usage_report, name='resource-usage-report'),
     path('tenants/<uuid:tenant_id>/sync/', sync_tenant, name='openstack-sync-tenant'),
     path('tenants/<uuid:tenant_id>/usage/', tenant_usage, name='openstack-tenant-usage'),
     path('tenants/<uuid:tenant_id>/create-resources/', create_tenant_resources_view,

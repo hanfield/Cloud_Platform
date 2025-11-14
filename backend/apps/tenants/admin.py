@@ -4,6 +4,7 @@
 
 from django.contrib import admin
 from .models import Tenant, TenantResourceUsage, TenantOperationLog
+from .user_models import UserProfile
 
 
 @admin.register(Tenant)
@@ -102,3 +103,35 @@ class TenantOperationLogAdmin(admin.ModelAdmin):
     def has_change_permission(self, request, obj=None):
         """禁止修改操作日志"""
         return False
+
+
+@admin.register(UserProfile)
+class UserProfileAdmin(admin.ModelAdmin):
+    """用户配置管理后台"""
+
+    list_display = [
+        'user', 'user_type', 'tenant', 'status', 'phone', 'created_at'
+    ]
+
+    list_filter = ['user_type', 'status', 'created_at']
+
+    search_fields = ['user__username', 'user__email', 'phone', 'tenant__name']
+
+    readonly_fields = ['created_at', 'updated_at']
+
+    fieldsets = (
+        ('用户信息', {
+            'fields': ('user', 'user_type', 'status')
+        }),
+        ('租户关联', {
+            'fields': ('tenant',)
+        }),
+        ('个人信息', {
+            'fields': ('phone', 'department', 'position')
+        }),
+        ('时间信息', {
+            'fields': ('created_at', 'updated_at')
+        })
+    )
+
+    date_hierarchy = 'created_at'

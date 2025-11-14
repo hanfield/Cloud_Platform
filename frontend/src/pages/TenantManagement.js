@@ -2,19 +2,22 @@
  * 租户管理页面
  */
 
-import React, { useState, useEffect } from 'react';
-import { Button, Modal, Input, Select, Space, message, Row, Col, Card, Statistic } from 'antd';
+import React, { useState, useEffect, useCallback } from 'react';
+import { Button, Modal, Input, Select, Space, message, Row, Col, Card, Statistic, Tabs, Table, Tag } from 'antd';
 import {
   PlusOutlined,
   SearchOutlined,
   ReloadOutlined,
   TeamOutlined,
-  ExportOutlined
+  ExportOutlined,
+  UserOutlined,
+  DesktopOutlined,
+  SafetyCertificateOutlined
 } from '@ant-design/icons';
 import TenantTable from '../components/TenantTable';
 import TenantForm from '../components/TenantForm';
 import tenantService from '../services/tenantService';
-import { exportToCSV } from '../utils/helpers';
+import { exportToCSV, formatDate, getStatusText, getStatusColor } from '../utils/helpers';
 
 const { Search } = Input;
 const { Option } = Select;
@@ -44,7 +47,7 @@ const TenantManagement = () => {
   }, [pagination.current, pagination.pageSize, filters]);
 
   // 获取租户列表
-  const fetchTenants = async () => {
+  const fetchTenants = useCallback(async () => {
     setLoading(true);
     try {
       const params = {
@@ -68,7 +71,7 @@ const TenantManagement = () => {
     } finally {
       setLoading(false);
     }
-  };
+  }, [pagination.current, pagination.pageSize, filters]);
 
   // 获取统计信息
   const fetchStatistics = async () => {
@@ -104,26 +107,244 @@ const TenantManagement = () => {
   };
 
   // 查看详情
-  const handleView = (tenant) => {
-    Modal.info({
-      title: '租户详情',
-      width: 800,
-      content: (
-        <div>
-          <p><strong>租户名称：</strong>{tenant.name}</p>
-          <p><strong>租户编码：</strong>{tenant.code}</p>
-          <p><strong>租户级别：</strong>{tenant.level}</p>
-          <p><strong>折扣级别：</strong>{tenant.discount_level}</p>
-          <p><strong>租户类型：</strong>{tenant.tenant_type}</p>
-          <p><strong>状态：</strong>{tenant.status}</p>
-          <p><strong>联系人：</strong>{tenant.contact_person}</p>
-          <p><strong>联系电话：</strong>{tenant.contact_phone}</p>
-          <p><strong>联系邮箱：</strong>{tenant.contact_email}</p>
-          <p><strong>描述：</strong>{tenant.description || '-'}</p>
-        </div>
-      ),
-      onOk() {}
-    });
+  const handleView = async (tenant) => {
+    try {
+      // 获取干系人信息
+      const stakeholdersResponse = await tenantService.getTenantStakeholders(tenant.id);
+      const stakeholders = stakeholdersResponse.results || stakeholdersResponse;
+
+      // 获取信息系统信息
+      const systemsResponse = await tenantService.getTenantInformationSystems(tenant.id);
+      const informationSystems = systemsResponse.results || systemsResponse;
+
+      const tabItems = [
+        {
+          key: 'basic',
+          label: (
+            <span>
+              <SafetyCertificateOutlined />
+              基本信息
+            </span>
+          ),
+          children: (
+            <div>
+              <Row gutter={16}>
+                <Col span={12}>
+                  <p><strong>租户名称：</strong>{tenant.name}</p>
+                  <p><strong>租户编码：</strong>{tenant.code}</p>
+                  <p><strong>租户级别：</strong>{tenant.level}</p>
+                  <p><strong>折扣级别：</strong>{tenant.discount_level}</p>
+                  <p><strong>折扣率：</strong>{tenant.discount_rate ? `${(tenant.discount_rate * 100).toFixed(1)}%` : '无'}</p>
+                </Col>
+                <Col span={12}>
+                  <p><strong>租户类型：</strong>{tenant.tenant_type}</p>
+                  <p><strong>状态：</strong>
+                    <Tag color={getStatusColor(tenant.status)}>
+                      {getStatusText(tenant.status)}
+                    </Tag>
+                  </p>
+                  <p><strong>开始时间：</strong>{formatDate(tenant.start_time)}</p>
+                  <p><strong>结束时间：</strong>{formatDate(tenant.end_time)}</p>
+                  <p><strong>创建时间：</strong>{formatDate(tenant.created_at)}</p>
+                </Col>
+              </Row>
+              <Row gutter={16} style={{ marginTop: 16 }}>
+                <Col span={24}>
+                  <p><strong>联系人：</strong>{tenant.contact_person}</p>
+                  <p><strong>联系电话：</strong>{tenant.contact_phone}</p>
+                  <p><strong>联系邮箱：</strong>{tenant.contact_email}</p>
+                  <p><strong>地址：</strong>{tenant.address || '-'}</p>
+                  <p><strong>描述：</strong>{tenant.description || '-'}</p>
+                </Col>
+              </Row>
+            </div>
+          ),
+        },
+        {
+          key: 'stakeholders',
+          label: (
+            <span>
+              <UserOutlined />
+              干系人 ({stakeholders.length})
+            </span>
+          ),
+          children: (
+            <div>
+              {stakeholders.length > 0 ? (
+                <Table
+                  dataSource={stakeholders}
+                  columns={[
+                    {
+                      title: '姓名',
+                      dataIndex: 'name',
+                      key: 'name',
+                    },
+                    {
+                      title: '类型',
+                      dataIndex: 'stakeholder_type_display',
+                      key: 'stakeholder_type',
+                      render: (type) => (
+                        <Tag color={
+                          type === '客户' ? 'blue' :
+                          type === '项目交付团队' ? 'green' : 'orange'
+                        }>
+                          {type}
+                        </Tag>
+                      )
+                    },
+                    {
+                      title: '电话',
+                      dataIndex: 'phone',
+                      key: 'phone',
+                    },
+                    {
+                      title: '邮箱',
+                      dataIndex: 'email',
+                      key: 'email',
+                    },
+                    {
+                      title: '职位',
+                      dataIndex: 'position',
+                      key: 'position',
+                    },
+                    {
+                      title: '部门',
+                      dataIndex: 'department',
+                      key: 'department',
+                    },
+                    {
+                      title: '主要联系人',
+                      dataIndex: 'is_primary',
+                      key: 'is_primary',
+                      render: (primary) => primary ? <Tag color="green">是</Tag> : <Tag>否</Tag>
+                    }
+                  ]}
+                  pagination={false}
+                  size="small"
+                />
+              ) : (
+                <p style={{ textAlign: 'center', color: '#999' }}>暂无干系人信息</p>
+              )}
+            </div>
+          ),
+        },
+        {
+          key: 'systems',
+          label: (
+            <span>
+              <DesktopOutlined />
+              信息系统 ({informationSystems.length})
+            </span>
+          ),
+          children: (
+            <div>
+              {informationSystems.length > 0 ? (
+                <Table
+                  dataSource={informationSystems}
+                  columns={[
+                    {
+                      title: '系统名称',
+                      dataIndex: 'name',
+                      key: 'name',
+                    },
+                    {
+                      title: '系统编码',
+                      dataIndex: 'code',
+                      key: 'code',
+                    },
+                    {
+                      title: '系统类型',
+                      dataIndex: 'system_type',
+                      key: 'system_type',
+                    },
+                    {
+                      title: '运行模式',
+                      dataIndex: 'operation_mode',
+                      key: 'operation_mode',
+                      render: (mode) => mode === '7x24' ? '7x24小时' : '5x8小时'
+                    },
+                    {
+                      title: '状态',
+                      dataIndex: 'status',
+                      key: 'status',
+                      render: (status) => (
+                        <Tag color={
+                          status === 'running' ? 'green' :
+                          status === 'stopped' ? 'red' :
+                          status === 'maintenance' ? 'orange' : 'gray'
+                        }>
+                          {status === 'running' ? '运行中' :
+                           status === 'stopped' ? '已停止' :
+                           status === 'maintenance' ? '维护中' : '异常'}
+                        </Tag>
+                      )
+                    },
+                    {
+                      title: 'CPU总量',
+                      dataIndex: 'total_cpu',
+                      key: 'total_cpu',
+                      render: (cpu) => `${cpu} 核`
+                    },
+                    {
+                      title: '内存总量',
+                      dataIndex: 'total_memory',
+                      key: 'total_memory',
+                      render: (memory) => `${memory} GB`
+                    },
+                    {
+                      title: '存储总量',
+                      dataIndex: 'total_storage',
+                      key: 'total_storage',
+                      render: (storage) => `${storage} GB`
+                    }
+                  ]}
+                  pagination={false}
+                  size="small"
+                />
+              ) : (
+                <p style={{ textAlign: 'center', color: '#999' }}>暂无信息系统</p>
+              )}
+            </div>
+          ),
+        }
+      ];
+
+      Modal.info({
+        title: `租户详情 - ${tenant.name}`,
+        width: 1000,
+        content: (
+          <div>
+            <Tabs
+              defaultActiveKey="basic"
+              items={tabItems}
+              size="small"
+            />
+          </div>
+        ),
+        onOk() {}
+      });
+    } catch (error) {
+      console.error('获取租户详情失败:', error);
+      Modal.info({
+        title: '租户详情',
+        width: 800,
+        content: (
+          <div>
+            <p><strong>租户名称：</strong>{tenant.name}</p>
+            <p><strong>租户编码：</strong>{tenant.code}</p>
+            <p><strong>租户级别：</strong>{tenant.level}</p>
+            <p><strong>折扣级别：</strong>{tenant.discount_level}</p>
+            <p><strong>租户类型：</strong>{tenant.tenant_type}</p>
+            <p><strong>状态：</strong>{tenant.status}</p>
+            <p><strong>联系人：</strong>{tenant.contact_person}</p>
+            <p><strong>联系电话：</strong>{tenant.contact_phone}</p>
+            <p><strong>联系邮箱：</strong>{tenant.contact_email}</p>
+            <p><strong>描述：</strong>{tenant.description || '-'}</p>
+          </div>
+        ),
+        onOk() {}
+      });
+    }
   };
 
   // 提交表单

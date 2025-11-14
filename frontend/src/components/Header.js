@@ -48,14 +48,24 @@ const AppHeader = ({ collapsed, onToggle }) => {
     }
   ];
 
-  // 处理退出登录
   function handleLogout() {
     localStorage.removeItem('access_token');
     localStorage.removeItem('refresh_token');
     localStorage.removeItem('user');
+    localStorage.removeItem('user_type');
     message.success('已退出登录');
-    navigate('/login');
+    navigate('/login', { replace: true });
+    window.location.reload();
   }
+
+  const handleLogoClick = () => {
+    const userType = localStorage.getItem('user_type');
+    if (userType === 'tenant') {
+      navigate('/tenant-portal');
+    } else {
+      navigate('/dashboard');
+    }
+  };
 
   return (
     <Header className="app-header">
@@ -73,7 +83,11 @@ const AppHeader = ({ collapsed, onToggle }) => {
               marginRight: 16
             }}
           />
-          <div className="header-logo">
+          <div
+            className="header-logo"
+            onClick={handleLogoClick}
+            style={{ cursor: 'pointer' }}
+          >
             <CloudOutlined className="header-logo-icon" />
             <span>云平台管理系统</span>
           </div>

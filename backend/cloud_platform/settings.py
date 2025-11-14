@@ -38,6 +38,10 @@ LOCAL_APPS = [
     'apps.tenants',
     'apps.openstack',
     'apps.contracts',
+    'apps.information_systems',
+    'apps.products',
+    'apps.services',
+    'apps.assets',
 ]
 
 INSTALLED_APPS = DJANGO_APPS + THIRD_PARTY_APPS + LOCAL_APPS
@@ -212,3 +216,6 @@ LOGGING = {
 
 # 确保日志目录存在
 os.makedirs(BASE_DIR / 'logs', exist_ok=True)
+
+# 加密配置
+ENCRYPTION_KEY = config('ENCRYPTION_KEY', default='your-32-character-encryption-key-here')

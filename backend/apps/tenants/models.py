@@ -2,10 +2,14 @@
 租户管理数据模型
 """
 
-from django.db import models
+from django.db import (models)
 from django.contrib.auth.models import User
 from django.utils.translation import gettext_lazy as _
 import uuid
+import json
+from cryptography.fernet import Fernet
+from django.conf import settings
+from django.core.exceptions import ImproperlyConfigured
 
 
 class Tenant(models.Model):
@@ -207,3 +211,109 @@ class TenantOperationLog(models.Model):
 
     def __str__(self):
         return f'{self.tenant.name} - {self.get_operation_type_display()}'
+
+
+class Stakeholder(models.Model):
+    """干系人模型"""
+
+    class StakeholderType(models.TextChoices):
+        CUSTOMER = 'customer', _('客户')
+        DELIVERY_TEAM = 'delivery_team', _('项目交付团队')
+        OPERATION_TEAM = 'operation_team', _('运维团队')
+
+    tenant = models.ForeignKey(Tenant, on_delete=models.CASCADE, related_name='stakeholders')
+    stakeholder_type = models.CharField(
+        max_length=20,
+        choices=StakeholderType.choices,
+        verbose_name=_('干系人类型')
+    )
+    name = models.CharField(max_length=100, verbose_name=_('姓名'))
+    phone_encrypted = models.TextField(verbose_name=_('加密电话号码'))
+    email_encrypted = models.TextField(verbose_name=_('加密邮箱'))
+    position = models.CharField(max_length=100, blank=True, verbose_name=_('职位'))
+    department = models.CharField(max_length=100, blank=True, verbose_name=_('部门'))
+    is_primary = models.BooleanField(default=False, verbose_name=_('主要联系人'))
+    notes = models.TextField(blank=True, verbose_name=_('备注'))
+    created_at = models.DateTimeField(auto_now_add=True, verbose_name=_('创建时间'))
+    updated_at = models.DateTimeField(auto_now=True, verbose_name=_('更新时间'))
+
+    class Meta:
+        verbose_name = _('干系人')
+        verbose_name_plural = _('干系人')
+        ordering = ['tenant', 'stakeholder_type', 'is_primary', '-name']
+
+    def __str__(self):
+        return f'{self.name} - {self.get_stakeholder_type_display()}'
+
+    @property
+    def phone(self):
+        """解密电话号码"""
+        return self._decrypt_field(self.phone_encrypted)
+
+    @phone.setter
+    def phone(self, value):
+        """加密电话号码"""
+        self.phone_encrypted = self._encrypt_field(value)
+
+    @property
+    def email(self):
+        """解密邮箱"""
+        return self._decrypt_field(self.email_encrypted)
+
+    @email.setter
+    def email(self, value):
+        """加密邮箱"""
+        self.email_encrypted = self._encrypt_field(value)
+
+    def _get_encryption_key(self):
+        """获取加密密钥"""
+        if not hasattr(settings, 'ENCRYPTION_KEY'):
+            raise ImproperlyConfigured('ENCRYPTION_KEY must be set in settings')
+        return settings.ENCRYPTION_KEY
+
+    def _encrypt_field(self, value):
+        """加密字段"""
+        if not value:
+            return ''
+        fernet = Fernet(self._get_encryption_key())
+        return fernet.encrypt(value.encode()).decode()
+
+    def _decrypt_field(self, encrypted_value):
+        """解密字段"""
+        if not encrypted_value:
+            return ''
+        fernet = Fernet(self._get_encryption_key())
+        return fernet.decrypt(encrypted_value.encode()).decode()
+
+
+class DataCenter(models.Model):
+    """数据中心模型"""
+
+    class DataCenterType(models.TextChoices):
+        PRODUCTION = 'production', _('生产中心')
+        SAME_CITY = 'same_city', _('同城灾备')
+        DIFFERENT_CITY = 'different_city', _('异地灾备')
+
+    name = models.CharField(max_length=100, verbose_name=_('数据中心名称'))
+    code = models.CharField(max_length=50, unique=True, verbose_name=_('数据中心代码'))
+    data_center_type = models.CharField(
+        max_length=20,
+        choices=DataCenterType.choices,
+        verbose_name=_('数据中心类型')
+    )
+    location = models.CharField(max_length=200, verbose_name=_('位置'))
+    description = models.TextField(blank=True, verbose_name=_('描述'))
+    is_active = models.BooleanField(default=True, verbose_name=_('是否启用'))
+    created_at = models.DateTimeField(auto_now_add=True, verbose_name=_('创建时间'))
+    updated_at = models.DateTimeField(auto_now=True, verbose_name=_('更新时间'))
+
+    class Meta:
+        verbose_name = _('数据中心')
+        verbose_name_plural = _('数据中心')
+        ordering = ['data_center_type', 'name']
+
+    def __str__(self):
+        return f'{self.name} ({self.get_data_center_type_display()})'
+
+
+

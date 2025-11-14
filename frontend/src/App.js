@@ -2,16 +2,24 @@
  * 主应用组件
  */
 
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { BrowserRouter as Router, Routes, Route, Navigate } from 'react-router-dom';
 import { Layout, ConfigProvider } from 'antd';
 import zhCN from 'antd/locale/zh_CN';
 import AppHeader from './components/Header';
 import Sidebar from './components/Sidebar';
+import Login from './pages/Login';
+import Register from './pages/Register';
 import Dashboard from './pages/Dashboard';
 import TenantManagement from './pages/TenantManagement';
+import UserManagement from './pages/UserManagement';
 import ContractManagement from './pages/ContractManagement';
-import OpenStackResources from './pages/OpenStackResources';
+import InformationSystemManagement from './pages/InformationSystemManagement';
+import ProductManagement from './pages/ProductManagement';
+import ServiceManagement from './pages/ServiceManagement';
+import AssetManagement from './pages/AssetManagement';
+import CloudResources from './pages/CloudResources';
+import TenantPortal from './pages/TenantPortal';
 import Settings from './pages/Settings';
 import Profile from './pages/Profile';
 import './styles/main.css';
@@ -19,12 +27,80 @@ import 'moment/locale/zh-cn';
 
 const { Content } = Layout;
 
+// 认证检查组件（目前未使用，保留以备将来需要）
+// const ProtectedRoute = ({ children }) => {
+//   const token = localStorage.getItem('access_token');
+//   return token ? children : <Navigate to="/login" replace />;
+// };
+
 function App() {
   const [collapsed, setCollapsed] = useState(false);
+  const [isAuthenticated, setIsAuthenticated] = useState(false);
+  const [userType, setUserType] = useState('admin');
+
+  useEffect(() => {
+    const token = localStorage.getItem('access_token');
+    const storedUserType = localStorage.getItem('user_type') || 'admin';
+    setIsAuthenticated(!!token);
+    setUserType(storedUserType);
+  }, []);
+
+  useEffect(() => {
+    const handleStorageChange = () => {
+      const token = localStorage.getItem('access_token');
+      const storedUserType = localStorage.getItem('user_type') || 'admin';
+      setIsAuthenticated(!!token);
+      setUserType(storedUserType);
+    };
+
+    window.addEventListener('storage', handleStorageChange);
+
+    return () => {
+      window.removeEventListener('storage', handleStorageChange);
+    };
+  }, []);
 
   const toggleCollapsed = () => {
     setCollapsed(!collapsed);
   };
+
+  // 如果未认证，显示登录或注册页面
+  if (!isAuthenticated) {
+    return (
+      <ConfigProvider locale={zhCN}>
+        <Router>
+          <Routes>
+            <Route path="/login" element={<Login />} />
+            <Route path="/register" element={<Register />} />
+            <Route path="*" element={<Navigate to="/login" replace />} />
+          </Routes>
+        </Router>
+      </ConfigProvider>
+    );
+  }
+
+  if (userType === 'tenant') {
+    return (
+      <ConfigProvider locale={zhCN}>
+        <Router>
+          <div className="app-container">
+            <AppHeader collapsed={false} onToggle={() => {}} />
+            <Layout className="main-layout">
+              <Content className="content-area" style={{ marginLeft: 0 }}>
+                <Routes>
+                  <Route path="/" element={<Navigate to="/tenant-portal" replace />} />
+                  <Route path="/login" element={<Navigate to="/tenant-portal" replace />} />
+                  <Route path="/tenant-portal" element={<TenantPortal />} />
+                  <Route path="/profile" element={<Profile />} />
+                  <Route path="*" element={<Navigate to="/tenant-portal" replace />} />
+                </Routes>
+              </Content>
+            </Layout>
+          </div>
+        </Router>
+      </ConfigProvider>
+    );
+  }
 
   return (
     <ConfigProvider locale={zhCN}>
@@ -38,12 +114,17 @@ function App() {
             <Content className="content-area">
               <Routes>
                 <Route path="/" element={<Navigate to="/dashboard" replace />} />
+                <Route path="/login" element={<Navigate to="/dashboard" replace />} />
                 <Route path="/dashboard" element={<Dashboard />} />
                 <Route path="/tenants" element={<TenantManagement />} />
+                <Route path="/users" element={<UserManagement />} />
                 <Route path="/contracts" element={<ContractManagement />} />
-                <Route path="/openstack/overview" element={<OpenStackResources />} />
-                <Route path="/openstack/servers" element={<OpenStackResources />} />
-                <Route path="/openstack/projects" element={<OpenStackResources />} />
+                <Route path="/information-systems" element={<InformationSystemManagement />} />
+                <Route path="/products" element={<ProductManagement />} />
+                <Route path="/services" element={<ServiceManagement />} />
+                <Route path="/assets" element={<AssetManagement />} />
+                <Route path="/cloud-resources" element={<CloudResources />} />
+                <Route path="/tenant-portal" element={<TenantPortal />} />
                 <Route path="/settings" element={<Settings />} />
                 <Route path="/profile" element={<Profile />} />
                 <Route path="*" element={<Navigate to="/dashboard" replace />} />

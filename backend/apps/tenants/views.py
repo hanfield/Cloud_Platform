@@ -12,12 +12,15 @@ from rest_framework.permissions import IsAuthenticated
 from django_filters.rest_framework import DjangoFilterBackend
 from rest_framework import filters
 
-from .models import Tenant, TenantResourceUsage, TenantOperationLog
+from .models import Tenant, TenantResourceUsage, TenantOperationLog, Stakeholder, DataCenter
 from .serializers import (
     TenantSerializer, TenantCreateSerializer, TenantUpdateSerializer,
     TenantResourceUsageSerializer, TenantOperationLogSerializer,
-    TenantStatisticsSerializer, TenantListSerializer
+    TenantStatisticsSerializer, TenantListSerializer,
+    StakeholderSerializer, StakeholderCreateSerializer, StakeholderUpdateSerializer,
+    DataCenterSerializer, DataCenterCreateSerializer, DataCenterUpdateSerializer
 )
+from .user_models import UserProfile
 
 logger = logging.getLogger(__name__)
 
@@ -51,6 +54,20 @@ class TenantViewSet(viewsets.ModelViewSet):
         elif self.action == 'list':
             return TenantListSerializer
         return TenantSerializer
+
+    def get_queryset(self):
+        """根据用户类型过滤租户数据"""
+        queryset = super().get_queryset()
+        user = self.request.user
+
+        try:
+            profile = user.profile
+            if profile.is_tenant_user and profile.tenant:
+                queryset = queryset.filter(id=profile.tenant.id)
+        except UserProfile.DoesNotExist:
+            pass
+
+        return queryset
 
     def perform_create(self, serializer):
         """创建租户时记录创建者"""
@@ -230,6 +247,39 @@ class TenantViewSet(viewsets.ModelViewSet):
         serializer = TenantOperationLogSerializer(logs, many=True)
         return Response(serializer.data)
 
+    @action(detail=True, methods=['get'])
+    def stakeholders(self, request, pk=None):
+        """获取租户干系人"""
+        tenant = self.get_object()
+        stakeholders = Stakeholder.objects.filter(tenant=tenant).order_by('stakeholder_type', 'is_primary', 'name')
+
+        page = self.paginate_queryset(stakeholders)
+        if page is not None:
+            serializer = StakeholderSerializer(page, many=True)
+            return self.get_paginated_response(serializer.data)
+
+        serializer = StakeholderSerializer(stakeholders, many=True)
+        return Response(serializer.data)
+
+    @action(detail=True, methods=['get'])
+    def information_systems(self, request, pk=None):
+        """获取租户信息系统"""
+        tenant = self.get_object()
+
+        # 导入信息系统模型
+        from ..information_systems.models import InformationSystem
+        from ..information_systems.serializers import InformationSystemSerializer
+
+        systems = InformationSystem.objects.filter(tenant=tenant).order_by('-created_at')
+
+        page = self.paginate_queryset(systems)
+        if page is not None:
+            serializer = InformationSystemSerializer(page, many=True)
+            return self.get_paginated_response(serializer.data)
+
+        serializer = InformationSystemSerializer(systems, many=True)
+        return Response(serializer.data)
+
 
 class TenantResourceUsageViewSet(viewsets.ModelViewSet):
     """租户资源使用情况视图集"""
@@ -264,3 +314,84 @@ class TenantOperationLogViewSet(viewsets.ReadOnlyModelViewSet):
         'operator': ['exact'],
         'operation_time': ['gte', 'lte'],
     }
+
+
+class StakeholderViewSet(viewsets.ModelViewSet):
+    """干系人管理视图集"""
+
+    queryset = Stakeholder.objects.all()
+    permission_classes = [IsAuthenticated]
+    filter_backends = [DjangoFilterBackend, filters.SearchFilter, filters.OrderingFilter]
+    search_fields = ['name', 'position', 'department', 'notes']
+    ordering_fields = ['name', 'stakeholder_type', 'is_primary', 'created_at']
+    ordering = ['tenant', 'stakeholder_type', 'is_primary', 'name']
+
+    filterset_fields = {
+        'tenant': ['exact'],
+        'stakeholder_type': ['exact'],
+        'is_primary': ['exact'],
+        'created_at': ['gte', 'lte'],
+    }
+
+    def get_serializer_class(self):
+        """根据动作选择序列化器"""
+        if self.action == 'create':
+            return StakeholderCreateSerializer
+        elif self.action in ['update', 'partial_update']:
+            return StakeholderUpdateSerializer
+        return StakeholderSerializer
+
+    def perform_create(self, serializer):
+        """创建干系人"""
+        stakeholder = serializer.save()
+        logger.info(f"用户 {self.request.user.username} 创建了干系人 {stakeholder.name}")
+
+    def perform_update(self, serializer):
+        """更新干系人"""
+        stakeholder = serializer.save()
+        logger.info(f"用户 {self.request.user.username} 更新了干系人 {stakeholder.name}")
+
+    def perform_destroy(self, instance):
+        """删除干系人"""
+        logger.info(f"用户 {self.request.user.username} 删除了干系人 {instance.name}")
+        super().perform_destroy(instance)
+
+
+class DataCenterViewSet(viewsets.ModelViewSet):
+    """数据中心管理视图集"""
+
+    queryset = DataCenter.objects.all()
+    permission_classes = [IsAuthenticated]
+    filter_backends = [DjangoFilterBackend, filters.SearchFilter, filters.OrderingFilter]
+    search_fields = ['name', 'code', 'location', 'description']
+    ordering_fields = ['name', 'data_center_type', 'is_active', 'created_at']
+    ordering = ['data_center_type', 'name']
+
+    filterset_fields = {
+        'data_center_type': ['exact'],
+        'is_active': ['exact'],
+        'created_at': ['gte', 'lte'],
+    }
+
+    def get_serializer_class(self):
+        """根据动作选择序列化器"""
+        if self.action == 'create':
+            return DataCenterCreateSerializer
+        elif self.action in ['update', 'partial_update']:
+            return DataCenterUpdateSerializer
+        return DataCenterSerializer
+
+    def perform_create(self, serializer):
+        """创建数据中心"""
+        data_center = serializer.save()
+        logger.info(f"用户 {self.request.user.username} 创建了数据中心 {data_center.name}")
+
+    def perform_update(self, serializer):
+        """更新数据中心"""
+        data_center = serializer.save()
+        logger.info(f"用户 {self.request.user.username} 更新了数据中心 {data_center.name}")
+
+    def perform_destroy(self, instance):
+        """删除数据中心"""
+        logger.info(f"用户 {self.request.user.username} 删除了数据中心 {instance.name}")
+        super().perform_destroy(instance)

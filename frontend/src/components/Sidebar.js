@@ -8,11 +8,12 @@ import { useNavigate, useLocation } from 'react-router-dom';
 import {
   DashboardOutlined,
   TeamOutlined,
+  UserOutlined,
   FileTextOutlined,
-  CloudServerOutlined,
-  DatabaseOutlined,
   SettingOutlined,
-  BarChartOutlined
+  DesktopOutlined,
+  ShoppingOutlined,
+  ToolOutlined
 } from '@ant-design/icons';
 
 const { Sider } = Layout;
@@ -34,31 +35,39 @@ const Sidebar = ({ collapsed }) => {
       label: '租户管理'
     },
     {
+      key: '/users',
+      icon: <UserOutlined />,
+      label: '用户管理'
+    },
+    {
       key: '/contracts',
       icon: <FileTextOutlined />,
       label: '合同管理'
     },
     {
-      key: '/openstack',
-      icon: <CloudServerOutlined />,
-      label: 'OpenStack资源',
-      children: [
-        {
-          key: '/openstack/overview',
-          icon: <BarChartOutlined />,
-          label: '资源总览'
-        },
-        {
-          key: '/openstack/servers',
-          icon: <DatabaseOutlined />,
-          label: '服务器管理'
-        },
-        {
-          key: '/openstack/projects',
-          icon: <TeamOutlined />,
-          label: '项目管理'
-        }
-      ]
+      key: '/information-systems',
+      icon: <DesktopOutlined />,
+      label: '信息系统管理'
+    },
+    {
+      key: '/products',
+      icon: <ShoppingOutlined />,
+      label: '产品管理'
+    },
+    {
+      key: '/services',
+      icon: <ToolOutlined />,
+      label: '服务管理'
+    },
+    {
+      key: '/assets',
+      icon: <ToolOutlined />,
+      label: '资产管理'
+    },
+    {
+      key: '/cloud-resources',
+      icon: <DesktopOutlined />,
+      label: '云资源管理'
     },
     {
       key: '/settings',

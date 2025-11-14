@@ -21,7 +21,7 @@ from .utils import (
     create_tenant_resources,
     delete_tenant_resources
 )
-from apps.tenants.models import Tenant
+from ..tenants.models import Tenant
 
 logger = logging.getLogger(__name__)
 
@@ -394,5 +394,148 @@ def create_tenant_resources_view(request, tenant_id):
         logger.error(f"创建租户资源失败: {str(e)}")
         return Response(
             {'error': f'创建租户资源失败: {str(e)}'},
+            status=status.HTTP_500_INTERNAL_SERVER_ERROR
+        )
+
+
+@api_view(['GET'])
+@permission_classes([IsAuthenticated])
+def cloud_overview(request):
+    """获取云资源总览统计"""
+    try:
+        service = get_openstack_service()
+
+        # 获取各类资源统计
+        servers = service.list_servers()
+        images = service.list_images()
+        flavors = service.list_flavors()
+        networks = service.list_networks()
+
+        # 计算资源使用情况
+        total_vcpus = 0
+        used_vcpus = 0
+        total_ram = 0
+        used_ram = 0
+        total_disk = 0
+        used_disk = 0
+
+        running_instances = 0
+        stopped_instances = 0
+
+        for server in servers:
+            if hasattr(server, 'status'):
+                if server.status == 'ACTIVE':
+                    running_instances += 1
+                else:
+                    stopped_instances += 1
+
+            # 获取flavor信息计算资源
+            if hasattr(server, 'flavor') and 'id' in server.flavor:
+                try:
+                    flavor = service.get_flavor(server.flavor['id'])
+                    if flavor:
+                        used_vcpus += getattr(flavor, 'vcpus', 0)
+                        used_ram += getattr(flavor, 'ram', 0)
+                        used_disk += getattr(flavor, 'disk', 0)
+                except:
+                    pass
+
+        # 计算总资源（基于所有flavor）
+        for flavor in flavors:
+            total_vcpus += getattr(flavor, 'vcpus', 0)
+            total_ram += getattr(flavor, 'ram', 0)
+            total_disk += getattr(flavor, 'disk', 0)
+
+        overview = {
+            'compute': {
+                'total_instances': len(servers),
+                'running_instances': running_instances,
+                'stopped_instances': stopped_instances,
+                'vcpus': {
+                    'total': total_vcpus,
+                    'used': used_vcpus,
+                    'available': total_vcpus - used_vcpus
+                },
+                'ram': {
+                    'total': total_ram,
+                    'used': used_ram,
+                    'available': total_ram - used_ram
+                },
+                'disk': {
+                    'total': total_disk,
+                    'used': used_disk,
+                    'available': total_disk - used_disk
+                }
+            },
+            'images': {
+                'total': len(images),
+                'active': len([img for img in images if getattr(img, 'status', '') == 'active'])
+            },
+            'networks': {
+                'total': len(networks)
+            },
+            'flavors': {
+                'total': len(flavors)
+            }
+        }
+
+        return Response(overview)
+    except Exception as e:
+        logger.error(f"获取云资源总览失败: {str(e)}")
+        return Response(
+            {'error': f'获取云资源总览失败: {str(e)}'},
+            status=status.HTTP_500_INTERNAL_SERVER_ERROR
+        )
+
+
+@api_view(['GET'])
+@permission_classes([IsAuthenticated])
+def resource_usage_report(request):
+    """获取资源使用报表"""
+    try:
+        service = get_openstack_service()
+
+        servers = service.list_servers()
+        projects = service.list_projects()
+
+        # 按项目统计资源使用
+        project_usage = {}
+        for project in projects:
+            project_id = getattr(project, 'id', None)
+            project_name = getattr(project, 'name', 'Unknown')
+
+            project_servers = [s for s in servers if getattr(s, 'project_id', None) == project_id]
+
+            vcpus = 0
+            ram = 0
+            disk = 0
+
+            for server in project_servers:
+                if hasattr(server, 'flavor') and 'id' in server.flavor:
+                    try:
+                        flavor = service.get_flavor(server.flavor['id'])
+                        if flavor:
+                            vcpus += getattr(flavor, 'vcpus', 0)
+                            ram += getattr(flavor, 'ram', 0)
+                            disk += getattr(flavor, 'disk', 0)
+                    except:
+                        pass
+
+            project_usage[project_name] = {
+                'instances': len(project_servers),
+                'vcpus': vcpus,
+                'ram': ram,
+                'disk': disk
+            }
+
+        return Response({
+            'project_usage': project_usage,
+            'total_projects': len(projects),
+            'total_instances': len(servers)
+        })
+    except Exception as e:
+        logger.error(f"获取资源使用报表失败: {str(e)}")
+        return Response(
+            {'error': f'获取资源使用报表失败: {str(e)}'},
             status=status.HTTP_500_INTERNAL_SERVER_ERROR
         )

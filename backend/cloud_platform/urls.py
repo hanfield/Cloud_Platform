@@ -7,24 +7,37 @@ from django.urls import path, include
 from django.conf import settings
 from django.conf.urls.static import static
 from rest_framework_simplejwt.views import (
-    TokenObtainPairView,
     TokenRefreshView,
     TokenVerifyView,
 )
+from apps.tenants.auth_serializers import CustomTokenObtainPairSerializer
+from apps.tenants.user_views import user_register
+from rest_framework_simplejwt.views import TokenObtainPairView
+
+
+class CustomTokenObtainPairView(TokenObtainPairView):
+    serializer_class = CustomTokenObtainPairSerializer
 
 urlpatterns = [
     # 管理后台
     path('admin/', admin.site.urls),
 
     # JWT认证
-    path('api/auth/login/', TokenObtainPairView.as_view(), name='token_obtain_pair'),
+    path('api/auth/login/', CustomTokenObtainPairView.as_view(), name='token_obtain_pair'),
     path('api/auth/refresh/', TokenRefreshView.as_view(), name='token_refresh'),
     path('api/auth/verify/', TokenVerifyView.as_view(), name='token_verify'),
+
+    # 用户注册（公开接口，放在这里绕过DRF全局认证）
+    path('api/auth/register/', user_register, name='user-register'),
 
     # 应用路由
     path('api/tenants/', include('apps.tenants.urls')),
     path('api/openstack/', include('apps.openstack.urls')),
     path('api/contracts/', include('apps.contracts.urls')),
+    path('api/information-systems/', include('apps.information_systems.urls')),
+    path('api/products/', include('apps.products.urls')),
+    path('api/services/', include('apps.services.urls')),
+    path('api/assets/', include('apps.assets.urls')),
 ]
 
 # 开发环境下的静态文件和媒体文件服务

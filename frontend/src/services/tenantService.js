@@ -103,6 +103,34 @@ export const tenantService = {
    */
   getOperationLogsList: (params) => {
     return request.get(`${TENANT_BASE_URL}/operation-logs/`, { params });
+  },
+
+  /**
+   * 获取租户干系人列表
+   */
+  getTenantStakeholders: (id, params) => {
+    return request.get(`${TENANT_BASE_URL}/${id}/stakeholders/`, { params });
+  },
+
+  /**
+   * 获取租户信息系统列表
+   */
+  getTenantInformationSystems: (id, params) => {
+    return request.get(`${TENANT_BASE_URL}/${id}/information_systems/`, { params });
+  },
+
+  /**
+   * 获取数据中心列表
+   */
+  getDataCenters: (params) => {
+    return request.get('/data-centers/', { params });
+  },
+
+  /**
+   * 获取干系人列表
+   */
+  getStakeholders: (params) => {
+    return request.get('/stakeholders/', { params });
   }
 };
 
