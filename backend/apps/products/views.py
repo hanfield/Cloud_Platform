@@ -216,6 +216,42 @@ class ProductSubscriptionViewSet(viewsets.ModelViewSet):
         serializer.save(created_by=self.request.user)
 
     @action(detail=True, methods=['post'])
+    def approve(self, request, pk=None):
+        """批准订阅"""
+        subscription = self.get_object()
+        if subscription.status != ProductSubscription.SubscriptionStatus.PENDING:
+            return Response({
+                'status': 'error',
+                'message': '只能批准待审批的订阅'
+            }, status=status.HTTP_400_BAD_REQUEST)
+
+        subscription.status = ProductSubscription.SubscriptionStatus.ACTIVE
+        subscription.save()
+
+        return Response({
+            'status': 'success',
+            'message': '订阅已批准'
+        })
+
+    @action(detail=True, methods=['post'])
+    def reject(self, request, pk=None):
+        """拒绝订阅"""
+        subscription = self.get_object()
+        if subscription.status != ProductSubscription.SubscriptionStatus.PENDING:
+            return Response({
+                'status': 'error',
+                'message': '只能拒绝待审批的订阅'
+            }, status=status.HTTP_400_BAD_REQUEST)
+
+        subscription.status = ProductSubscription.SubscriptionStatus.TERMINATED
+        subscription.save()
+
+        return Response({
+            'status': 'success',
+            'message': '订阅已拒绝'
+        })
+
+    @action(detail=True, methods=['post'])
     def suspend(self, request, pk=None):
         """暂停订阅"""
         subscription = self.get_object()
@@ -272,6 +308,9 @@ class ProductSubscriptionViewSet(viewsets.ModelViewSet):
     def statistics(self, request):
         """获取订阅统计信息"""
         total_subscriptions = ProductSubscription.objects.count()
+        pending_subscriptions = ProductSubscription.objects.filter(
+            status=ProductSubscription.SubscriptionStatus.PENDING
+        ).count()
         active_subscriptions = ProductSubscription.objects.filter(
             status=ProductSubscription.SubscriptionStatus.ACTIVE
         ).count()
@@ -303,6 +342,7 @@ class ProductSubscriptionViewSet(viewsets.ModelViewSet):
 
         return Response({
             'total_subscriptions': total_subscriptions,
+            'pending_subscriptions': pending_subscriptions,
             'active_subscriptions': active_subscriptions,
             'suspended_subscriptions': suspended_subscriptions,
             'terminated_subscriptions': terminated_subscriptions,

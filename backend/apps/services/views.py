@@ -68,10 +68,12 @@ class ServiceViewSet(viewsets.ModelViewSet):
         }
 
         statistics_data = {
-            'total_services': total_services,
-            'active_services': active_services,
-            'inactive_services': inactive_services,
-            'draft_services': draft_services,
+            'total_count': total_services,
+            'active_count': active_services,
+            'inactive_count': inactive_services,
+            'draft_count': draft_services,
+            'subscription_count': 0,  # TODO: 实现订阅数统计
+            'monthly_revenue': 0,  # TODO: 实现月收入统计
             'service_types': service_types_dict,
             'availability_levels': availability_levels_dict
         }

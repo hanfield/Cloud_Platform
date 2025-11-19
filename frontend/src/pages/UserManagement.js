@@ -75,7 +75,10 @@ const UserManagement = () => {
 
   const fetchTenants = async () => {
     try {
-      const response = await tenantService.getTenants({ page_size: 1000 });
+      const response = await tenantService.getTenants({
+        page_size: 1000,
+        status: 'active'
+      });
       setTenants(response.results || response);
     } catch (error) {
       console.error('获取租户列表失败:', error);
@@ -96,7 +99,7 @@ const UserManagement = () => {
       email: user.email,
       user_type: user.user_type,
       tenant: user.tenant,
-      status: user.status,
+      status_display: user.status_display,  // 显示状态文本，不可编辑
       phone: user.phone,
       department: user.department,
       position: user.position
@@ -541,7 +544,7 @@ const UserManagement = () => {
                   rules={[{ required: true, message: '请选择所属租户' }]}
                 >
                   <Select
-                    placeholder="选择租户"
+                    placeholder="选择租户（仅显示已激活租户）"
                     showSearch
                     filterOption={(input, option) =>
                       option.children.toLowerCase().indexOf(input.toLowerCase()) >= 0
@@ -560,16 +563,10 @@ const UserManagement = () => {
 
           {modalMode === 'edit' && (
             <Form.Item
-              name="status"
+              name="status_display"
               label="状态"
-              rules={[{ required: true, message: '请选择状态' }]}
             >
-              <Select placeholder="选择状态">
-                <Option value="active">已激活</Option>
-                <Option value="pending">待审核</Option>
-                <Option value="suspended">已暂停</Option>
-                <Option value="rejected">已拒绝</Option>
-              </Select>
+              <Input disabled placeholder="状态由审批、激活、暂停等操作控制" />
             </Form.Item>
           )}
 

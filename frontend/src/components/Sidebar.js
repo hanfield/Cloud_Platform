@@ -9,11 +9,12 @@ import {
   DashboardOutlined,
   TeamOutlined,
   UserOutlined,
-  FileTextOutlined,
-  SettingOutlined,
   DesktopOutlined,
   ShoppingOutlined,
-  ToolOutlined
+  ToolOutlined,
+  HomeOutlined,
+  AppstoreOutlined,
+  ShopOutlined
 } from '@ant-design/icons';
 
 const { Sider } = Layout;
@@ -22,12 +23,15 @@ const Sidebar = ({ collapsed }) => {
   const navigate = useNavigate();
   const location = useLocation();
 
-  // 菜单项配置
-  const menuItems = [
+  // 获取用户类型
+  const userType = localStorage.getItem('user_type') || 'admin';
+
+  // 管理员菜单项配置
+  const adminMenuItems = [
     {
       key: '/dashboard',
       icon: <DashboardOutlined />,
-      label: '仪表板'
+      label: '主页'
     },
     {
       key: '/tenants',
@@ -38,16 +42,6 @@ const Sidebar = ({ collapsed }) => {
       key: '/users',
       icon: <UserOutlined />,
       label: '用户管理'
-    },
-    {
-      key: '/contracts',
-      icon: <FileTextOutlined />,
-      label: '合同管理'
-    },
-    {
-      key: '/information-systems',
-      icon: <DesktopOutlined />,
-      label: '信息系统管理'
     },
     {
       key: '/products',
@@ -68,13 +62,40 @@ const Sidebar = ({ collapsed }) => {
       key: '/cloud-resources',
       icon: <DesktopOutlined />,
       label: '云资源管理'
-    },
-    {
-      key: '/settings',
-      icon: <SettingOutlined />,
-      label: '系统设置'
     }
   ];
+
+  // 租户用户菜单项配置
+  const tenantMenuItems = [
+    {
+      key: '/tenant-portal',
+      icon: <HomeOutlined />,
+      label: '首页'
+    },
+    {
+      key: '/tenant-info',
+      icon: <TeamOutlined />,
+      label: '租户信息'
+    },
+    {
+      key: '/tenant-systems',
+      icon: <DesktopOutlined />,
+      label: '我的系统'
+    },
+    {
+      key: '/tenant-products',
+      icon: <ShopOutlined />,
+      label: '产品订阅'
+    },
+    {
+      key: '/tenant-orders',
+      icon: <AppstoreOutlined />,
+      label: '订单管理'
+    }
+  ];
+
+  // 根据用户类型选择菜单项
+  const menuItems = userType === 'tenant' ? tenantMenuItems : adminMenuItems;
 
   // 处理菜单点击
   const handleMenuClick = ({ key }) => {

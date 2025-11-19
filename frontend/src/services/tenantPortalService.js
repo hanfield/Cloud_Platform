@@ -32,6 +32,10 @@ export const subscribeProduct = async (data) => {
   return request.post('/tenants/portal/subscribe-product/', data);
 };
 
+export const createVirtualMachine = async (data) => {
+  return request.post('/tenants/portal/create-vm/', data);
+};
+
 export default {
   getTenantProfile,
   getSystemsOverview,
@@ -40,5 +44,6 @@ export default {
   getTenantSubscriptions,
   createInformationSystem,
   getAvailableProducts,
-  subscribeProduct
+  subscribeProduct,
+  createVirtualMachine
 };

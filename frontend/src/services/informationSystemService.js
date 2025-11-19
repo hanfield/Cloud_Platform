@@ -54,6 +54,11 @@ export const getInformationSystemBillingInfo = async (id) => {
   return request.get(`/information-systems/${id}/billing/`);
 };
 
+// 获取信息系统详细信息（包括产品、服务、虚拟机、计费记录等）
+export const getInformationSystemDetailedInfo = async (id) => {
+  return request.get(`/information-systems/${id}/detailed_info/`);
+};
+
 export default {
   getInformationSystems,
   getInformationSystem,
@@ -64,5 +69,6 @@ export default {
   getInformationSystemResources,
   updateInformationSystemStatus,
   getInformationSystemRuntimeStats,
-  getInformationSystemBillingInfo
+  getInformationSystemBillingInfo,
+  getInformationSystemDetailedInfo
 };

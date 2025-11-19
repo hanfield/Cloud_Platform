@@ -69,9 +69,23 @@ class InformationSystem(models.Model):
         verbose_name=_('所属租户')
     )
 
-    # 服务内容
-    service_content = models.TextField(verbose_name=_('服务内容'))
-    product_content = models.TextField(verbose_name=_('产品内容'))
+    # 关联产品和服务
+    products = models.ManyToManyField(
+        'products.Product',
+        blank=True,
+        related_name='information_systems',
+        verbose_name=_('订阅产品')
+    )
+    services = models.ManyToManyField(
+        'services.Service',
+        blank=True,
+        related_name='information_systems',
+        verbose_name=_('订阅服务')
+    )
+
+    # 服务内容（保留作为备注）
+    service_content = models.TextField(blank=True, default='', verbose_name=_('服务内容备注'))
+    product_content = models.TextField(blank=True, default='', verbose_name=_('产品内容备注'))
 
     # 资源总量
     total_cpu = models.IntegerField(
@@ -531,3 +545,207 @@ class ResourceAdjustmentLog(models.Model):
         new_hourly_cost = (self.new_cpu_cores * 0.1) + (self.new_memory_gb * 0.05) + (self.new_storage_gb * 0.01)
 
         return new_hourly_cost - old_hourly_cost
+
+
+class VirtualMachine(models.Model):
+    """虚拟机模型"""
+
+    class VMStatus(models.TextChoices):
+        RUNNING = 'running', _('运行中')
+        STOPPED = 'stopped', _('已停止')
+        PAUSED = 'paused', _('已暂停')
+        ERROR = 'error', _('异常')
+
+    class DataCenterType(models.TextChoices):
+        PRODUCTION = 'production', _('生产环境')
+        LOCAL_DR = 'local_dr', _('同城灾备')
+        REMOTE_DR = 'remote_dr', _('异地灾备')
+        DEVELOPMENT = 'development', _('开发环境')
+        TESTING = 'testing', _('测试环境')
+
+    # 基本信息
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    name = models.CharField(max_length=200, verbose_name=_('虚拟机名称'))
+
+    # 关联信息系统
+    information_system = models.ForeignKey(
+        InformationSystem,
+        on_delete=models.CASCADE,
+        related_name='virtual_machines',
+        verbose_name=_('所属信息系统')
+    )
+
+    # 数据中心和区域信息
+    data_center_type = models.CharField(
+        max_length=20,
+        choices=DataCenterType.choices,
+        default=DataCenterType.PRODUCTION,
+        verbose_name=_('数据中心类型')
+    )
+    availability_zone = models.CharField(
+        max_length=100,
+        blank=True,
+        verbose_name=_('可用区')
+    )
+    region = models.CharField(
+        max_length=100,
+        blank=True,
+        verbose_name=_('区域')
+    )
+
+    # 资源配置
+    cpu_cores = models.IntegerField(
+        validators=[MinValueValidator(1)],
+        default=2,
+        verbose_name=_('CPU核数')
+    )
+    memory_gb = models.IntegerField(
+        validators=[MinValueValidator(1)],
+        default=4,
+        verbose_name=_('内存大小(GB)')
+    )
+    disk_gb = models.IntegerField(
+        validators=[MinValueValidator(10)],
+        default=100,
+        verbose_name=_('磁盘容量(GB)')
+    )
+
+    # 网络信息
+    ip_address = models.GenericIPAddressField(
+        blank=True,
+        null=True,
+        verbose_name=_('IP地址')
+    )
+    mac_address = models.CharField(
+        max_length=17,
+        blank=True,
+        verbose_name=_('MAC地址')
+    )
+
+    # 运行状态
+    status = models.CharField(
+        max_length=20,
+        choices=VMStatus.choices,
+        default=VMStatus.STOPPED,
+        verbose_name=_('状态')
+    )
+
+    # 运行时间配置
+    runtime_start = models.TimeField(
+        null=True,
+        blank=True,
+        verbose_name=_('运行开始时间')
+    )
+    runtime_end = models.TimeField(
+        null=True,
+        blank=True,
+        verbose_name=_('运行结束时间')
+    )
+
+    # OpenStack相关
+    openstack_id = models.CharField(
+        max_length=100,
+        blank=True,
+        null=True,
+        unique=True,
+        verbose_name=_('OpenStack实例ID')
+    )
+
+    # 时间信息
+    created_at = models.DateTimeField(auto_now_add=True, verbose_name=_('创建时间'))
+    updated_at = models.DateTimeField(auto_now=True, verbose_name=_('更新时间'))
+    last_start_time = models.DateTimeField(null=True, blank=True, verbose_name=_('最后启动时间'))
+    last_stop_time = models.DateTimeField(null=True, blank=True, verbose_name=_('最后停止时间'))
+
+    # 操作系统信息
+    os_type = models.CharField(
+        max_length=50,
+        blank=True,
+        verbose_name=_('操作系统类型')
+    )
+    os_version = models.CharField(
+        max_length=50,
+        blank=True,
+        verbose_name=_('操作系统版本')
+    )
+
+    # 描述
+    description = models.TextField(blank=True, verbose_name=_('描述'))
+
+    # 创建者
+    created_by = models.ForeignKey(
+        User,
+        on_delete=models.SET_NULL,
+        null=True,
+        related_name='created_vms',
+        verbose_name=_('创建者')
+    )
+
+    class Meta:
+        verbose_name = _('虚拟机')
+        verbose_name_plural = _('虚拟机')
+        ordering = ['-created_at']
+        unique_together = ['information_system', 'name']
+
+    def __str__(self):
+        return f"{self.name} ({self.information_system.name})"
+
+    @property
+    def runtime_display(self):
+        """返回运行时间的显示格式"""
+        if self.runtime_start and self.runtime_end:
+            return f"{self.runtime_start.strftime('%H:%M')}-{self.runtime_end.strftime('%H:%M')}"
+        return "全天"
+
+    @property
+    def uptime(self):
+        """计算已运行时间"""
+        if self.status == self.VMStatus.RUNNING and self.last_start_time:
+            from django.utils import timezone
+            return timezone.now() - self.last_start_time
+        return None
+
+
+class VMOperationLog(models.Model):
+    """虚拟机操作日志"""
+
+    class OperationType(models.TextChoices):
+        START = 'start', _('启动')
+        STOP = 'stop', _('停止')
+        RESTART = 'restart', _('重启')
+        PAUSE = 'pause', _('暂停')
+        RESUME = 'resume', _('恢复')
+        DELETE = 'delete', _('删除')
+
+    virtual_machine = models.ForeignKey(
+        VirtualMachine,
+        on_delete=models.CASCADE,
+        related_name='operation_logs',
+        verbose_name=_('虚拟机')
+    )
+
+    operation_type = models.CharField(
+        max_length=20,
+        choices=OperationType.choices,
+        verbose_name=_('操作类型')
+    )
+
+    operator = models.ForeignKey(
+        User,
+        on_delete=models.SET_NULL,
+        null=True,
+        verbose_name=_('操作者')
+    )
+
+    operation_time = models.DateTimeField(auto_now_add=True, verbose_name=_('操作时间'))
+    operation_detail = models.TextField(blank=True, verbose_name=_('操作详情'))
+    success = models.BooleanField(default=True, verbose_name=_('是否成功'))
+    error_message = models.TextField(blank=True, verbose_name=_('错误信息'))
+
+    class Meta:
+        verbose_name = _('虚拟机操作日志')
+        verbose_name_plural = _('虚拟机操作日志')
+        ordering = ['-operation_time']
+
+    def __str__(self):
+        return f"{self.virtual_machine.name} - {self.get_operation_type_display()} - {self.operation_time.strftime('%Y-%m-%d %H:%M:%S')}"

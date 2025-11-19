@@ -134,6 +134,14 @@ class UserCreateSerializer(serializers.Serializer):
         default=UserProfile.UserStatus.ACTIVE
     )
 
+    # 只读字段，用于返回创建后的数据
+    id = serializers.IntegerField(read_only=True)
+    tenant = serializers.UUIDField(read_only=True, source='tenant.id')
+    tenant_name = serializers.CharField(read_only=True, source='tenant.name')
+    user_type_display = serializers.CharField(read_only=True, source='get_user_type_display')
+    status_display = serializers.CharField(read_only=True, source='get_status_display')
+    created_at = serializers.DateTimeField(read_only=True)
+
     def validate_username(self, value):
         """验证用户名"""
         if User.objects.filter(username=value).exists():
@@ -144,6 +152,17 @@ class UserCreateSerializer(serializers.Serializer):
         """验证邮箱"""
         if User.objects.filter(email=value).exists():
             raise serializers.ValidationError("该邮箱已被使用")
+        return value
+
+    def validate_tenant_id(self, value):
+        """验证租户ID"""
+        if value:
+            try:
+                tenant = Tenant.objects.get(id=value)
+                if tenant.status != Tenant.Status.ACTIVE:
+                    raise serializers.ValidationError("该租户未激活，无法添加用户")
+            except Tenant.DoesNotExist:
+                raise serializers.ValidationError("租户不存在")
         return value
 
     def validate(self, data):
@@ -193,16 +212,25 @@ class UserUpdateSerializer(serializers.ModelSerializer):
     """用户更新序列化器"""
 
     email = serializers.EmailField(source='user.email')
+    status = serializers.CharField(read_only=True)  # 状态只读，不允许通过编辑修改
 
     class Meta:
         model = UserProfile
         fields = ['email', 'user_type', 'tenant', 'status', 'phone', 'department', 'position']
+        read_only_fields = ['status']  # 明确标记status为只读
 
     def validate_email(self, value):
         """验证邮箱"""
         user = self.instance.user
         if User.objects.filter(email=value).exclude(id=user.id).exists():
             raise serializers.ValidationError("该邮箱已被使用")
+        return value
+
+    def validate_tenant(self, value):
+        """验证租户"""
+        if value:
+            if value.status != Tenant.Status.ACTIVE:
+                raise serializers.ValidationError("该租户未激活，无法分配用户")
         return value
 
     def update(self, instance, validated_data):
@@ -212,9 +240,7 @@ class UserUpdateSerializer(serializers.ModelSerializer):
             instance.user.email = user_data['email']
             instance.user.save()
 
-        if 'status' in validated_data:
-            instance.user.is_active = validated_data['status'] == UserProfile.UserStatus.ACTIVE
-
+        # 移除status字段的处理，状态变更通过专门的action完成
         for attr, value in validated_data.items():
             setattr(instance, attr, value)
 

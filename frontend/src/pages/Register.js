@@ -18,9 +18,15 @@ const Register = () => {
 
   const fetchTenants = async () => {
     try {
-      const response = await tenantService.getTenants({ status: 'active', page_size: 1000 });
-      setTenants(response.results || response);
+      // 使用公开API获取租户列表
+      const response = await fetch('/api/tenants/public_list/');
+      if (!response.ok) {
+        throw new Error('Failed to fetch tenants');
+      }
+      const data = await response.json();
+      setTenants(data);
     } catch (error) {
+      console.error('获取租户列表失败:', error);
       message.error('获取租户列表失败');
     }
   };
@@ -34,11 +40,51 @@ const Register = () => {
         navigate('/login');
       }, 2000);
     } catch (error) {
-      const errorMsg = error.response?.data?.detail ||
-                      error.response?.data?.username?.[0] ||
-                      error.response?.data?.email?.[0] ||
-                      error.response?.data?.tenant_id?.[0] ||
-                      '注册失败，请检查输入信息';
+      console.error('注册错误:', error);
+
+      // 获取详细的错误信息
+      let errorMsg = '注册失败，请检查输入信息';
+
+      if (error.response?.data) {
+        const errorData = error.response.data;
+
+        // 处理字段级别的错误
+        if (typeof errorData === 'object') {
+          // 优先显示特定字段的错误
+          if (errorData.username) {
+            errorMsg = Array.isArray(errorData.username)
+              ? errorData.username[0]
+              : errorData.username;
+          } else if (errorData.email) {
+            errorMsg = Array.isArray(errorData.email)
+              ? errorData.email[0]
+              : errorData.email;
+          } else if (errorData.password) {
+            errorMsg = Array.isArray(errorData.password)
+              ? errorData.password[0]
+              : errorData.password;
+          } else if (errorData.password_confirm) {
+            errorMsg = Array.isArray(errorData.password_confirm)
+              ? errorData.password_confirm[0]
+              : errorData.password_confirm;
+          } else if (errorData.tenant_id) {
+            errorMsg = Array.isArray(errorData.tenant_id)
+              ? errorData.tenant_id[0]
+              : errorData.tenant_id;
+          } else if (errorData.detail) {
+            errorMsg = errorData.detail;
+          } else {
+            // 显示第一个错误
+            const firstError = Object.values(errorData)[0];
+            errorMsg = Array.isArray(firstError) ? firstError[0] : firstError;
+          }
+        } else if (typeof errorData === 'string') {
+          errorMsg = errorData;
+        }
+      } else if (error.message) {
+        errorMsg = error.message;
+      }
+
       message.error(errorMsg);
     } finally {
       setLoading(false);
@@ -47,22 +93,24 @@ const Register = () => {
 
   return (
     <div style={{
-      height: '100vh',
+      minHeight: '100vh',
       background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
       display: 'flex',
       justifyContent: 'center',
       alignItems: 'center',
-      padding: '20px'
+      padding: '40px 20px'
     }}>
       <Card
         title={
           <Space>
-            <CloudOutlined style={{ fontSize: '24px', color: '#1890ff' }} />
+            <CloudOutlined style={{ fontSize: '20px', color: '#1890ff' }} />
             <span>用户注册</span>
           </Space>
         }
         style={{
-          width: 500,
+          width: 480,
+          maxHeight: '90vh',
+          overflow: 'auto',
           boxShadow: '0 8px 32px rgba(0, 0, 0, 0.1)'
         }}
       >
@@ -70,7 +118,7 @@ const Register = () => {
           name="register"
           onFinish={handleRegister}
           autoComplete="off"
-          size="large"
+          size="middle"
           layout="vertical"
         >
           <Form.Item
@@ -104,14 +152,19 @@ const Register = () => {
           <Form.Item
             name="password"
             label="密码"
+            tooltip="密码至少8个字符，不能全为数字，不能是常见密码，不能与用户信息太相似"
             rules={[
               { required: true, message: '请输入密码' },
-              { min: 8, message: '密码至少8个字符' }
+              { min: 8, message: '密码至少8个字符' },
+              {
+                pattern: /^(?=.*[A-Za-z])(?=.*\d).+$/,
+                message: '密码必须包含字母和数字'
+              }
             ]}
           >
             <Input.Password
               prefix={<LockOutlined />}
-              placeholder="密码"
+              placeholder="请输入包含字母和数字的密码"
             />
           </Form.Item>
 

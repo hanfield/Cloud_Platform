@@ -64,13 +64,8 @@ api.interceptors.response.use(
       }
     }
 
-    // 其他错误处理
-    const errorMessage = error.response?.data?.detail ||
-                        error.response?.data?.message ||
-                        error.message ||
-                        '请求失败';
-
-    return Promise.reject(new Error(errorMessage));
+    // 保留原始error对象，以便在外部获取详细错误信息
+    return Promise.reject(error);
   }
 );
 

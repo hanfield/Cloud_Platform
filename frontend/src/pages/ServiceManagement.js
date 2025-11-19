@@ -94,9 +94,10 @@ const ServiceManagement = () => {
   const fetchServiceStatistics = async () => {
     try {
       const statsData = await serviceService.getServiceStatistics();
-      setStats(statsData);
+      setStats(statsData || {});
     } catch (error) {
       console.error('获取统计信息失败:', error);
+      setStats({});
     }
   };
 

@@ -6,62 +6,62 @@ import { request } from './api';
 
 // 获取服务列表
 export const getServices = async (params = {}) => {
-  return request.get('/services/', { params });
+  return request.get('/services/services/', { params });
 };
 
 // 获取服务详情
 export const getService = async (id) => {
-  return request.get(`/services/${id}/`);
+  return request.get(`/services/services/${id}/`);
 };
 
 // 创建服务
 export const createService = async (data) => {
-  return request.post('/services/', data);
+  return request.post('/services/services/', data);
 };
 
 // 更新服务
 export const updateService = async (id, data) => {
-  return request.put(`/services/${id}/`, data);
+  return request.put(`/services/services/${id}/`, data);
 };
 
 // 删除服务
 export const deleteService = async (id) => {
-  return request.delete(`/services/${id}/`);
+  return request.delete(`/services/services/${id}/`);
 };
 
 // 获取服务统计信息
 export const getServiceStatistics = async () => {
-  return request.get('/services/statistics/');
+  return request.get('/services/services/statistics/');
 };
 
 // 获取服务订阅列表
 export const getServiceSubscriptions = async (params = {}) => {
-  return request.get('/service-subscriptions/', { params });
+  return request.get('/services/service-subscriptions/', { params });
 };
 
 // 获取服务订阅详情
 export const getServiceSubscription = async (id) => {
-  return request.get(`/service-subscriptions/${id}/`);
+  return request.get(`/services/service-subscriptions/${id}/`);
 };
 
 // 创建服务订阅
 export const createServiceSubscription = async (data) => {
-  return request.post('/service-subscriptions/', data);
+  return request.post('/services/service-subscriptions/', data);
 };
 
 // 更新服务订阅
 export const updateServiceSubscription = async (id, data) => {
-  return request.put(`/service-subscriptions/${id}/`, data);
+  return request.put(`/services/service-subscriptions/${id}/`, data);
 };
 
 // 删除服务订阅
 export const deleteServiceSubscription = async (id) => {
-  return request.delete(`/service-subscriptions/${id}/`);
+  return request.delete(`/services/service-subscriptions/${id}/`);
 };
 
 // 获取服务订阅统计信息
 export const getServiceSubscriptionStatistics = async () => {
-  return request.get('/service-subscriptions/statistics/');
+  return request.get('/services/service-subscriptions/statistics/');
 };
 
 // 获取租户服务订阅

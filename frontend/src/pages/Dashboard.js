@@ -1,327 +1,379 @@
 /**
- * 合同表单组件
+ * 云平台主页 - 仪表板
  */
 
-import React, { useEffect, useState } from 'react';
-import { Form, Input, Select, DatePicker, InputNumber, Row, Col, Button, message } from 'antd';
-import moment from 'moment';
+import React, { useState, useEffect } from 'react';
+import {
+  Row, Col, Card, Statistic, Progress, Table, Tag, Timeline,
+  Button, Space, Typography, Divider, Alert
+} from 'antd';
+import {
+  CloudServerOutlined, TeamOutlined, FileTextOutlined,
+  DashboardOutlined, RiseOutlined, SafetyOutlined,
+  ThunderboltOutlined, DatabaseOutlined, ApiOutlined,
+  CheckCircleOutlined, WarningOutlined, ClockCircleOutlined
+} from '@ant-design/icons';
+import { useNavigate } from 'react-router-dom';
 import tenantService from '../services/tenantService';
+import userService from '../services/userService';
+import contractService from '../services/contractService';
 
-const { TextArea } = Input;
-const { Option } = Select;
+const { Title, Text, Paragraph } = Typography;
 
-const ContractForm = ({ initialValues, onSubmit, onCancel, loading }) => {
-  const [form] = Form.useForm();
-  const [tenants, setTenants] = useState([]);
-  const [loadingTenants, setLoadingTenants] = useState(false);
+const Dashboard = () => {
+  const navigate = useNavigate();
+  const [loading, setLoading] = useState(true);
+  const [stats, setStats] = useState({
+    tenants: { total: 0, active: 0 },
+    users: { total: 0, active: 0, pending: 0 },
+    contracts: { total: 0, active: 0 }
+  });
 
   useEffect(() => {
-    fetchTenants();
+    fetchDashboardData();
   }, []);
 
-  useEffect(() => {
-    if (initialValues) {
-      const formValues = {
-        ...initialValues,
-        start_date: initialValues.start_date ? moment(initialValues.start_date) : null,
-        end_date: initialValues.end_date ? moment(initialValues.end_date) : null,
-        signed_date: initialValues.signed_date ? moment(initialValues.signed_date) : null
-      };
-      form.setFieldsValue(formValues);
-    }
-  }, [initialValues, form]);
-
-  const fetchTenants = async () => {
-    setLoadingTenants(true);
+  const fetchDashboardData = async () => {
+    setLoading(true);
     try {
-      const response = await tenantService.getTenants({ status: 'active' });
-      setTenants(response.results || response);
+      const [tenantStats, userStats, contractStats] = await Promise.all([
+        tenantService.getTenantStatistics(),
+        userService.getUserStatistics(),
+        contractService.getContractStatistics()
+      ]);
+
+      setStats({
+        tenants: tenantStats,
+        users: userStats,
+        contracts: contractStats
+      });
     } catch (error) {
-      message.error('获取租户列表失败');
+      console.error('获取仪表板数据失败:', error);
     } finally {
-      setLoadingTenants(false);
+      setLoading(false);
     }
   };
 
-  const handleSubmit = async () => {
-    try {
-      const values = await form.validateFields();
-      const submitValues = {
-        ...values,
-        start_date: values.start_date ? values.start_date.format('YYYY-MM-DD') : null,
-        end_date: values.end_date ? values.end_date.format('YYYY-MM-DD') : null,
-        signed_date: values.signed_date ? values.signed_date.format('YYYY-MM-DD') : null
-      };
-      await onSubmit(submitValues);
-      message.success(initialValues ? '更新成功' : '创建成功');
-    } catch (error) {
-      console.error('Form validation failed:', error);
+  // 快捷操作
+  const quickActions = [
+    {
+      title: '创建租户',
+      icon: <TeamOutlined />,
+      color: '#1890ff',
+      onClick: () => navigate('/tenants')
+    },
+    {
+      title: '用户管理',
+      icon: <TeamOutlined />,
+      color: '#52c41a',
+      onClick: () => navigate('/users')
+    },
+    {
+      title: '合同管理',
+      icon: <FileTextOutlined />,
+      color: '#faad14',
+      onClick: () => navigate('/contracts')
+    },
+    {
+      title: '云资源',
+      icon: <CloudServerOutlined />,
+      color: '#722ed1',
+      onClick: () => navigate('/cloud-resources')
     }
-  };
+  ];
+
+  // 系统状态
+  const systemStatus = [
+    { name: '计算服务', status: 'running', uptime: '99.9%', color: 'success' },
+    { name: '存储服务', status: 'running', uptime: '99.8%', color: 'success' },
+    { name: '网络服务', status: 'running', uptime: '99.9%', color: 'success' },
+    { name: '数据库服务', status: 'running', uptime: '99.7%', color: 'success' }
+  ];
+
+  // 最近活动
+  const recentActivities = [
+    {
+      time: '2分钟前',
+      type: 'success',
+      content: '用户 admin_test 登录系统'
+    },
+    {
+      time: '15分钟前',
+      type: 'info',
+      content: '租户"测试租户公司"创建了新用户'
+    },
+    {
+      time: '1小时前',
+      type: 'warning',
+      content: '合同 CON-2024-001 即将到期'
+    },
+    {
+      time: '2小时前',
+      type: 'success',
+      content: '系统完成自动备份'
+    }
+  ];
+
+  const statusColumns = [
+    {
+      title: '服务名称',
+      dataIndex: 'name',
+      key: 'name',
+      render: (text) => (
+        <Space>
+          <ApiOutlined />
+          <Text strong>{text}</Text>
+        </Space>
+      )
+    },
+    {
+      title: '状态',
+      dataIndex: 'status',
+      key: 'status',
+      render: (status) => (
+        <Tag color="success" icon={<CheckCircleOutlined />}>
+          运行中
+        </Tag>
+      )
+    },
+    {
+      title: '可用性',
+      dataIndex: 'uptime',
+      key: 'uptime',
+      render: (uptime) => (
+        <Space>
+          <Progress
+            percent={parseFloat(uptime)}
+            size="small"
+            style={{ width: 100 }}
+            strokeColor="#52c41a"
+          />
+          <Text>{uptime}</Text>
+        </Space>
+      )
+    }
+  ];
 
   return (
-    <Form
-      form={form}
-      layout="vertical"
-      className="form-container"
-    >
-      <div className="form-section">
-        <h3 className="form-section-title">基本信息</h3>
-        <Row gutter={16}>
-          <Col span={12}>
-            <Form.Item
-              label="合同编号"
-              name="contract_number"
-              rules={[
-                { required: true, message: '请输入合同编号' },
-                { min: 3, message: '合同编号至少3个字符' }
-              ]}
-            >
-              <Input placeholder="请输入合同编号" />
-            </Form.Item>
-          </Col>
-          <Col span={12}>
-            <Form.Item
-              label="合同标题"
-              name="title"
-              rules={[{ required: true, message: '请输入合同标题' }]}
-            >
-              <Input placeholder="请输入合同标题" />
-            </Form.Item>
-          </Col>
-        </Row>
-
-        <Form.Item
-          label="合同描述"
-          name="description"
-        >
-          <TextArea rows={3} placeholder="请输入合同描述" />
-        </Form.Item>
+    <div className="page-container">
+      {/* 页面标题 */}
+      <div className="page-header">
+        <Title level={2}>
+          <DashboardOutlined className="page-title-icon" />
+          云平台管理控制台
+        </Title>
+        <Paragraph type="secondary">
+          欢迎使用云平台管理系统，这里是您的数据中心
+        </Paragraph>
       </div>
 
-      <div className="form-section">
-        <h3 className="form-section-title">租户和类型</h3>
-        <Row gutter={16}>
-          <Col span={12}>
-            <Form.Item
-              label="关联租户"
-              name="tenant"
-              rules={[{ required: true, message: '请选择租户' }]}
-            >
-              <Select
-                placeholder="请选择租户"
-                loading={loadingTenants}
-                showSearch
-                optionFilterProp="children"
+      {/* 欢迎横幅 */}
+      <Alert
+        message="系统运行正常"
+        description="所有服务运行稳定，当前无告警信息。上次系统检查时间：刚刚"
+        type="success"
+        showIcon
+        icon={<SafetyOutlined />}
+        style={{ marginBottom: 24 }}
+      />
+
+      {/* 核心统计数据 */}
+      <Row gutter={[16, 16]} style={{ marginBottom: 24 }}>
+        <Col xs={24} sm={12} lg={6}>
+          <Card hoverable>
+            <Statistic
+              title="租户总数"
+              value={stats.tenants.total_count || 0}
+              prefix={<TeamOutlined />}
+              suffix="个"
+              valueStyle={{ color: '#1890ff' }}
+            />
+            <Divider style={{ margin: '12px 0' }} />
+            <Text type="secondary">
+              活跃: {stats.tenants.active_count || 0} |
+              暂停: {stats.tenants.suspended_count || 0}
+            </Text>
+          </Card>
+        </Col>
+
+        <Col xs={24} sm={12} lg={6}>
+          <Card hoverable>
+            <Statistic
+              title="用户总数"
+              value={stats.users.total_count || 0}
+              prefix={<TeamOutlined />}
+              suffix="人"
+              valueStyle={{ color: '#52c41a' }}
+            />
+            <Divider style={{ margin: '12px 0' }} />
+            <Text type="secondary">
+              活跃: {stats.users.active_count || 0} |
+              待审核: {stats.users.pending_count || 0}
+            </Text>
+          </Card>
+        </Col>
+
+        <Col xs={24} sm={12} lg={6}>
+          <Card hoverable>
+            <Statistic
+              title="合同总数"
+              value={stats.contracts.total_count || 0}
+              prefix={<FileTextOutlined />}
+              suffix="份"
+              valueStyle={{ color: '#faad14' }}
+            />
+            <Divider style={{ margin: '12px 0' }} />
+            <Text type="secondary">
+              生效中: {stats.contracts.active_count || 0} |
+              即将到期: {stats.contracts.expiring_count || 0}
+            </Text>
+          </Card>
+        </Col>
+
+        <Col xs={24} sm={12} lg={6}>
+          <Card hoverable>
+            <Statistic
+              title="系统健康度"
+              value={99.8}
+              prefix={<RiseOutlined />}
+              suffix="%"
+              precision={1}
+              valueStyle={{ color: '#722ed1' }}
+            />
+            <Divider style={{ margin: '12px 0' }} />
+            <Text type="secondary">
+              所有服务运行正常
+            </Text>
+          </Card>
+        </Col>
+      </Row>
+
+      {/* 快捷操作 */}
+      <Card
+        title={
+          <Space>
+            <ThunderboltOutlined />
+            <span>快捷操作</span>
+          </Space>
+        }
+        style={{ marginBottom: 24 }}
+      >
+        <Row gutter={[16, 16]}>
+          {quickActions.map((action, index) => (
+            <Col xs={24} sm={12} md={6} key={index}>
+              <Card
+                hoverable
+                onClick={action.onClick}
+                style={{
+                  textAlign: 'center',
+                  borderColor: action.color,
+                  cursor: 'pointer'
+                }}
               >
-                {tenants.map(tenant => (
-                  <Option key={tenant.id} value={tenant.id}>
-                    {tenant.name} ({tenant.code})
-                  </Option>
-                ))}
-              </Select>
-            </Form.Item>
-          </Col>
-          <Col span={12}>
-            <Form.Item
-              label="合同类型"
-              name="contract_type"
-              rules={[{ required: true, message: '请选择合同类型' }]}
-            >
-              <Select placeholder="请选择合同类型">
-                <Option value="standard">标准合同</Option>
-                <Option value="custom">定制合同</Option>
-                <Option value="trial">试用合同</Option>
-                <Option value="upgrade">升级合同</Option>
-              </Select>
-            </Form.Item>
-          </Col>
+                <div style={{ fontSize: 32, color: action.color, marginBottom: 8 }}>
+                  {action.icon}
+                </div>
+                <Text strong>{action.title}</Text>
+              </Card>
+            </Col>
+          ))}
         </Row>
-      </div>
+      </Card>
 
-      <div className="form-section">
-        <h3 className="form-section-title">时间信息</h3>
-        <Row gutter={16}>
-          <Col span={8}>
-            <Form.Item
-              label="开始日期"
-              name="start_date"
-              rules={[{ required: true, message: '请选择开始日期' }]}
-            >
-              <DatePicker style={{ width: '100%' }} placeholder="请选择开始日期" />
-            </Form.Item>
-          </Col>
-          <Col span={8}>
-            <Form.Item
-              label="结束日期"
-              name="end_date"
-              rules={[{ required: true, message: '请选择结束日期' }]}
-            >
-              <DatePicker style={{ width: '100%' }} placeholder="请选择结束日期" />
-            </Form.Item>
-          </Col>
-          <Col span={8}>
-            <Form.Item
-              label="签署日期"
-              name="signed_date"
-            >
-              <DatePicker style={{ width: '100%' }} placeholder="请选择签署日期" />
-            </Form.Item>
-          </Col>
-        </Row>
-      </div>
+      <Row gutter={[16, 16]}>
+        {/* 系统服务状态 */}
+        <Col xs={24} lg={14}>
+          <Card
+            title={
+              <Space>
+                <DatabaseOutlined />
+                <span>系统服务状态</span>
+              </Space>
+            }
+            extra={<Tag color="success">全部正常</Tag>}
+          >
+            <Table
+              dataSource={systemStatus}
+              columns={statusColumns}
+              pagination={false}
+              size="small"
+              rowKey="name"
+            />
+          </Card>
+        </Col>
 
-      <div className="form-section">
-        <h3 className="form-section-title">计费信息</h3>
-        <Row gutter={16}>
-          <Col span={8}>
-            <Form.Item
-              label="计费方式"
-              name="billing_method"
-              rules={[{ required: true, message: '请选择计费方式' }]}
-            >
-              <Select placeholder="请选择计费方式">
-                <Option value="monthly">按月计费</Option>
-                <Option value="quarterly">按季度计费</Option>
-                <Option value="yearly">按年计费</Option>
-                <Option value="pay_as_use">按使用量计费</Option>
-              </Select>
-            </Form.Item>
-          </Col>
-          <Col span={8}>
-            <Form.Item
-              label="合同总金额"
-              name="total_amount"
-              rules={[{ required: true, message: '请输入合同总金额' }]}
-            >
-              <InputNumber
-                min={0}
-                precision={2}
-                style={{ width: '100%' }}
-                placeholder="请输入合同总金额"
-                prefix="¥"
-              />
-            </Form.Item>
-          </Col>
-          <Col span={8}>
-            <Form.Item
-              label="折扣率"
-              name="discount_rate"
-              initialValue={1.0}
-              rules={[{ required: true, message: '请输入折扣率' }]}
-            >
-              <InputNumber
-                min={0}
-                max={2}
-                step={0.01}
-                precision={2}
-                style={{ width: '100%' }}
-                placeholder="1.0表示无折扣"
-              />
-            </Form.Item>
-          </Col>
-        </Row>
-      </div>
+        {/* 最近活动 */}
+        <Col xs={24} lg={10}>
+          <Card
+            title={
+              <Space>
+                <ClockCircleOutlined />
+                <span>最近活动</span>
+              </Space>
+            }
+            extra={<Button type="link" size="small">查看全部</Button>}
+          >
+            <Timeline
+              items={recentActivities.map(activity => ({
+                color: activity.type === 'success' ? 'green' :
+                       activity.type === 'warning' ? 'orange' : 'blue',
+                children: (
+                  <div>
+                    <Text type="secondary" style={{ fontSize: 12 }}>
+                      {activity.time}
+                    </Text>
+                    <div>{activity.content}</div>
+                  </div>
+                )
+              }))}
+            />
+          </Card>
+        </Col>
+      </Row>
 
-      <div className="form-section">
-        <h3 className="form-section-title">客户联系信息</h3>
-        <Row gutter={16}>
-          <Col span={8}>
-            <Form.Item
-              label="客户联系人"
-              name="client_contact_person"
-              rules={[{ required: true, message: '请输入客户联系人' }]}
-            >
-              <Input placeholder="请输入客户联系人" />
-            </Form.Item>
-          </Col>
-          <Col span={8}>
-            <Form.Item
-              label="客户联系电话"
-              name="client_contact_phone"
-              rules={[{ required: true, message: '请输入客户联系电话' }]}
-            >
-              <Input placeholder="请输入客户联系电话" />
-            </Form.Item>
-          </Col>
-          <Col span={8}>
-            <Form.Item
-              label="客户联系邮箱"
-              name="client_contact_email"
-              rules={[
-                { required: true, message: '请输入客户联系邮箱' },
-                { type: 'email', message: '请输入正确的邮箱格式' }
-              ]}
-            >
-              <Input placeholder="请输入客户联系邮箱" />
-            </Form.Item>
-          </Col>
-        </Row>
-      </div>
+      {/* 资源使用概览 */}
+      <Row gutter={[16, 16]} style={{ marginTop: 16 }}>
+        <Col xs={24} sm={8}>
+          <Card title="CPU 使用率" size="small">
+            <Progress
+              type="dashboard"
+              percent={45}
+              strokeColor="#1890ff"
+            />
+            <Text type="secondary" style={{ display: 'block', textAlign: 'center', marginTop: 8 }}>
+              当前负载：中等
+            </Text>
+          </Card>
+        </Col>
 
-      <div className="form-section">
-        <h3 className="form-section-title">我方联系信息</h3>
-        <Row gutter={16}>
-          <Col span={8}>
-            <Form.Item
-              label="我方联系人"
-              name="company_contact_person"
-              rules={[{ required: true, message: '请输入我方联系人' }]}
-            >
-              <Input placeholder="请输入我方联系人" />
-            </Form.Item>
-          </Col>
-          <Col span={8}>
-            <Form.Item
-              label="我方联系电话"
-              name="company_contact_phone"
-              rules={[{ required: true, message: '请输入我方联系电话' }]}
-            >
-              <Input placeholder="请输入我方联系电话" />
-            </Form.Item>
-          </Col>
-          <Col span={8}>
-            <Form.Item
-              label="我方联系邮箱"
-              name="company_contact_email"
-              rules={[
-                { required: true, message: '请输入我方联系邮箱' },
-                { type: 'email', message: '请输入正确的邮箱格式' }
-              ]}
-            >
-              <Input placeholder="请输入我方联系邮箱" />
-            </Form.Item>
-          </Col>
-        </Row>
-      </div>
+        <Col xs={24} sm={8}>
+          <Card title="内存使用率" size="small">
+            <Progress
+              type="dashboard"
+              percent={62}
+              strokeColor="#52c41a"
+            />
+            <Text type="secondary" style={{ display: 'block', textAlign: 'center', marginTop: 8 }}>
+              当前负载：正常
+            </Text>
+          </Card>
+        </Col>
 
-      <div className="form-section">
-        <h3 className="form-section-title">合同条款</h3>
-        <Form.Item
-          label="合同条款"
-          name="terms_and_conditions"
-        >
-          <TextArea rows={4} placeholder="请输入合同条款" />
-        </Form.Item>
-
-        <Form.Item
-          label="特殊条款"
-          name="special_terms"
-        >
-          <TextArea rows={3} placeholder="请输入特殊条款" />
-        </Form.Item>
-      </div>
-
-      <div className="form-actions">
-        <Button onClick={onCancel} style={{ marginRight: 16 }}>
-          取消
-        </Button>
-        <Button type="primary" onClick={handleSubmit} loading={loading}>
-          {initialValues ? '更新' : '创建'}
-        </Button>
-      </div>
-    </Form>
+        <Col xs={24} sm={8}>
+          <Card title="存储使用率" size="small">
+            <Progress
+              type="dashboard"
+              percent={38}
+              strokeColor="#faad14"
+            />
+            <Text type="secondary" style={{ display: 'block', textAlign: 'center', marginTop: 8 }}>
+              当前负载：良好
+            </Text>
+          </Card>
+        </Col>
+      </Row>
+    </div>
   );
 };
 
-export default ContractForm;
+export default Dashboard;

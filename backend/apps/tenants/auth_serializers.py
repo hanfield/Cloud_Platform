@@ -23,7 +23,7 @@ class CustomTokenObtainPairSerializer(TokenObtainPairSerializer):
                 })
 
             data['user_type'] = profile.user_type
-            data['user_id'] = str(profile.id)
+            data['user_id'] = str(self.user.id)  # 使用user.id而不是profile.id
             data['username'] = self.user.username
             data['email'] = self.user.email
 
@@ -49,7 +49,7 @@ class CustomTokenObtainPairSerializer(TokenObtainPairSerializer):
         try:
             profile = user.profile
             token['user_type'] = profile.user_type
-            token['user_id'] = str(profile.id)
+            token['user_id'] = str(user.id)  # 使用user.id而不是profile.id
 
             if profile.tenant:
                 token['tenant_id'] = str(profile.tenant.id)

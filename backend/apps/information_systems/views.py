@@ -8,7 +8,10 @@ from rest_framework.response import Response
 from rest_framework.permissions import IsAuthenticated
 from django_filters.rest_framework import DjangoFilterBackend
 from django.utils import timezone
-from .models import InformationSystem, SystemResource, SystemOperationLog, SystemBillingRecord
+from .models import (
+    InformationSystem, SystemResource, SystemOperationLog, SystemBillingRecord,
+    VirtualMachine, DailyBillingRecord, ResourceAdjustmentLog
+)
 from .serializers import (
     InformationSystemSerializer,
     SystemResourceSerializer,
@@ -175,6 +178,138 @@ class InformationSystemViewSet(viewsets.ModelViewSet):
         records = information_system.billing_records.all()
         serializer = SystemBillingRecordSerializer(records, many=True)
         return Response(serializer.data)
+
+    @action(detail=True, methods=['get'])
+    def detailed_info(self, request, pk=None):
+        """获取信息系统的详细信息，包括产品、服务、虚拟机、计费记录等"""
+        information_system = self.get_object()
+
+        # 基本信息
+        basic_info = InformationSystemSerializer(information_system).data
+
+        # 关联的产品
+        products_data = []
+        for product in information_system.products.all():
+            products_data.append({
+                'id': product.id,
+                'name': product.name,
+                'product_type': product.product_type,
+                'product_type_display': product.get_product_type_display(),
+                'base_price': str(product.base_price),
+                'billing_unit': product.get_billing_unit_display(),
+                'cpu_capacity': product.cpu_capacity,
+                'memory_capacity': product.memory_capacity,
+                'storage_capacity': product.storage_capacity
+            })
+
+        # 关联的服务
+        services_data = []
+        for service in information_system.services.all():
+            services_data.append({
+                'id': service.id,
+                'name': service.name,
+                'service_type': service.service_type,
+                'service_type_display': service.get_service_type_display(),
+                'base_price': str(service.base_price),
+                'billing_cycle': service.get_billing_cycle_display(),
+                'sla_level': service.get_sla_level_display(),
+                'description': service.description
+            })
+
+        # 虚拟机列表
+        vms = VirtualMachine.objects.filter(information_system=information_system)
+        vms_data = []
+        for vm in vms:
+            vms_data.append({
+                'id': str(vm.id),
+                'name': vm.name,
+                'ip_address': vm.ip_address or '未分配',
+                'cpu_cores': vm.cpu_cores,
+                'memory_gb': vm.memory_gb,
+                'disk_gb': vm.disk_gb,
+                'status': vm.status,
+                'status_display': vm.get_status_display(),
+                'data_center_type': vm.data_center_type,
+                'data_center_type_display': vm.get_data_center_type_display(),
+                'availability_zone': vm.availability_zone or '-',
+                'region': vm.region or '-',
+                'runtime_display': vm.runtime_display,
+                'os_type': vm.os_type or '未知',
+                'last_start_time': vm.last_start_time.strftime('%Y-%m-%d %H:%M:%S') if vm.last_start_time else None,
+                'created_at': vm.created_at.strftime('%Y-%m-%d %H:%M:%S')
+            })
+
+        # 按数据中心类型分组虚拟机
+        vms_by_datacenter = {}
+        for vm_data in vms_data:
+            dc_type = vm_data['data_center_type_display']
+            if dc_type not in vms_by_datacenter:
+                vms_by_datacenter[dc_type] = []
+            vms_by_datacenter[dc_type].append(vm_data)
+
+        # 每日计费记录（最近30天）
+        daily_billing = DailyBillingRecord.objects.filter(
+            information_system=information_system
+        ).order_by('-billing_date')[:30]
+
+        daily_billing_data = []
+        for record in daily_billing:
+            daily_billing_data.append({
+                'billing_date': record.billing_date.strftime('%Y-%m-%d'),
+                'cpu_cores': record.cpu_cores,
+                'memory_gb': record.memory_gb,
+                'storage_gb': record.storage_gb,
+                'running_hours': record.running_hours,
+                'hourly_rate': str(record.hourly_rate),
+                'daily_cost': str(record.daily_cost),
+                'actual_daily_cost': str(record.actual_daily_cost),
+                'discount_rate': str(record.discount_rate)
+            })
+
+        # 资源调整历史（最近10条）
+        adjustments = ResourceAdjustmentLog.objects.filter(
+            information_system=information_system
+        ).order_by('-adjustment_date')[:10]
+
+        adjustments_data = []
+        for adj in adjustments:
+            adjustments_data.append({
+                'adjustment_type': adj.get_adjustment_type_display(),
+                'old_cpu': adj.old_cpu_cores,
+                'new_cpu': adj.new_cpu_cores,
+                'old_memory': adj.old_memory_gb,
+                'new_memory': adj.new_memory_gb,
+                'old_storage': adj.old_storage_gb,
+                'new_storage': adj.new_storage_gb,
+                'adjustment_date': adj.adjustment_date.strftime('%Y-%m-%d %H:%M:%S'),
+                'effective_date': adj.effective_date.strftime('%Y-%m-%d'),
+                'adjustment_detail': adj.adjustment_detail,
+                'operator': adj.operator.username if adj.operator else '系统',
+                'cost_impact': str(adj.cost_impact)
+            })
+
+        # 计算当月费用
+        from datetime import date
+        current_month = date.today().replace(day=1)
+        monthly_billing = DailyBillingRecord.objects.filter(
+            information_system=information_system,
+            billing_date__gte=current_month
+        )
+
+        monthly_cost = sum([float(record.actual_daily_cost) for record in monthly_billing])
+
+        return Response({
+            'basic_info': basic_info,
+            'products': products_data,
+            'services': services_data,
+            'virtual_machines': vms_data,
+            'vms_by_datacenter': vms_by_datacenter,
+            'daily_billing': daily_billing_data,
+            'resource_adjustments': adjustments_data,
+            'monthly_cost': monthly_cost,
+            'total_vms': len(vms_data),
+            'running_vms': len([vm for vm in vms_data if vm['status'] == 'running'])
+        })
 
     @action(detail=False, methods=['get'])
     def statistics(self, request):

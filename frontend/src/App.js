@@ -10,6 +10,7 @@ import AppHeader from './components/Header';
 import Sidebar from './components/Sidebar';
 import Login from './pages/Login';
 import Register from './pages/Register';
+import ForgotPassword from './pages/ForgotPassword';
 import Dashboard from './pages/Dashboard';
 import TenantManagement from './pages/TenantManagement';
 import UserManagement from './pages/UserManagement';
@@ -72,6 +73,7 @@ function App() {
           <Routes>
             <Route path="/login" element={<Login />} />
             <Route path="/register" element={<Register />} />
+            <Route path="/forgot-password" element={<ForgotPassword />} />
             <Route path="*" element={<Navigate to="/login" replace />} />
           </Routes>
         </Router>
@@ -84,13 +86,18 @@ function App() {
       <ConfigProvider locale={zhCN}>
         <Router>
           <div className="app-container">
-            <AppHeader collapsed={false} onToggle={() => {}} />
+            <AppHeader collapsed={collapsed} onToggle={toggleCollapsed} />
             <Layout className="main-layout">
-              <Content className="content-area" style={{ marginLeft: 0 }}>
+              <Sidebar collapsed={collapsed} />
+              <Content className={`content-area ${collapsed ? 'sidebar-collapsed' : ''}`}>
                 <Routes>
                   <Route path="/" element={<Navigate to="/tenant-portal" replace />} />
                   <Route path="/login" element={<Navigate to="/tenant-portal" replace />} />
                   <Route path="/tenant-portal" element={<TenantPortal />} />
+                  <Route path="/tenant-info" element={<TenantPortal />} />
+                  <Route path="/tenant-systems" element={<TenantPortal />} />
+                  <Route path="/tenant-products" element={<TenantPortal />} />
+                  <Route path="/tenant-orders" element={<TenantPortal />} />
                   <Route path="/profile" element={<Profile />} />
                   <Route path="*" element={<Navigate to="/tenant-portal" replace />} />
                 </Routes>
@@ -111,7 +118,7 @@ function App() {
           <Layout className="main-layout">
             <Sidebar collapsed={collapsed} />
 
-            <Content className="content-area">
+            <Content className={`content-area ${collapsed ? 'sidebar-collapsed' : ''}`}>
               <Routes>
                 <Route path="/" element={<Navigate to="/dashboard" replace />} />
                 <Route path="/login" element={<Navigate to="/dashboard" replace />} />

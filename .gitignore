@@ -29,11 +29,14 @@ env/
 
 # Django
 *.log
-db.sqlite3
-db.sqlite3-journal
 /backend/staticfiles/
 /backend/media/
 /backend/logs/
+
+# PostgreSQL
+*.sql
+*.dump
+/backend/backups/
 
 # Environment variables
 .env

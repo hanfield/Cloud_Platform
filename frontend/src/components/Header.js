@@ -2,7 +2,7 @@
  * 头部组件
  */
 
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { Layout, Avatar, Dropdown, Space, Button, message } from 'antd';
 import {
   UserOutlined,
@@ -18,35 +18,29 @@ const { Header } = Layout;
 
 const AppHeader = ({ collapsed, onToggle }) => {
   const navigate = useNavigate();
-  const [user] = useState(() => {
-    const userData = localStorage.getItem('user');
-    return userData ? JSON.parse(userData) : { username: 'Admin' };
-  });
+  const [user, setUser] = useState({ username: 'Admin', user_type: 'admin' });
 
-  // 用户菜单项
-  const userMenuItems = [
-    {
-      key: 'profile',
-      icon: <UserOutlined />,
-      label: '个人信息',
-      onClick: () => navigate('/profile')
-    },
-    {
-      key: 'settings',
-      icon: <SettingOutlined />,
-      label: '系统设置',
-      onClick: () => navigate('/settings')
-    },
-    {
-      type: 'divider'
-    },
-    {
-      key: 'logout',
-      icon: <LogoutOutlined />,
-      label: '退出登录',
-      onClick: handleLogout
-    }
-  ];
+  // 监听localStorage变化，更新用户信息
+  useEffect(() => {
+    const updateUserInfo = () => {
+      const userData = localStorage.getItem('user');
+      const userType = localStorage.getItem('user_type') || 'admin';
+      if (userData) {
+        const parsed = JSON.parse(userData);
+        setUser({ ...parsed, user_type: userType });
+      }
+    };
+
+    // 初始加载
+    updateUserInfo();
+
+    // 监听storage事件
+    window.addEventListener('storage', updateUserInfo);
+
+    return () => {
+      window.removeEventListener('storage', updateUserInfo);
+    };
+  }, []);
 
   function handleLogout() {
     localStorage.removeItem('access_token');
@@ -57,6 +51,42 @@ const AppHeader = ({ collapsed, onToggle }) => {
     navigate('/login', { replace: true });
     window.location.reload();
   }
+
+  // 根据用户类型生成菜单项
+  const getUserMenuItems = () => {
+    const items = [
+      {
+        key: 'profile',
+        icon: <UserOutlined />,
+        label: '个人信息',
+        onClick: () => navigate('/profile')
+      }
+    ];
+
+    // 只有管理员才显示系统设置
+    if (user.user_type === 'admin') {
+      items.push({
+        key: 'settings',
+        icon: <SettingOutlined />,
+        label: '系统设置',
+        onClick: () => navigate('/settings')
+      });
+    }
+
+    items.push(
+      {
+        type: 'divider'
+      },
+      {
+        key: 'logout',
+        icon: <LogoutOutlined />,
+        label: '退出登录',
+        onClick: handleLogout
+      }
+    );
+
+    return items;
+  };
 
   const handleLogoClick = () => {
     const userType = localStorage.getItem('user_type');
@@ -94,7 +124,7 @@ const AppHeader = ({ collapsed, onToggle }) => {
         </div>
 
         <div className="header-actions">
-          <Dropdown menu={{ items: userMenuItems }} placement="bottomRight">
+          <Dropdown menu={{ items: getUserMenuItems() }} placement="bottomRight">
             <div className="header-user">
               <Avatar icon={<UserOutlined />} style={{ marginRight: 8 }} />
               <span>{user.username}</span>

@@ -12,15 +12,275 @@ import {
   ExportOutlined,
   UserOutlined,
   DesktopOutlined,
-  SafetyCertificateOutlined
+  SafetyCertificateOutlined,
+  FileTextOutlined
 } from '@ant-design/icons';
 import TenantTable from '../components/TenantTable';
 import TenantForm from '../components/TenantForm';
 import tenantService from '../services/tenantService';
+import contractService from '../services/contractService';
+import informationSystemService from '../services/informationSystemService';
 import { exportToCSV, formatDate, getStatusText, getStatusColor } from '../utils/helpers';
 
 const { Search } = Input;
 const { Option } = Select;
+
+// 信息系统详细信息展开组件
+const SystemDetailExpanded = ({ record }) => {
+  const [detailedInfo, setDetailedInfo] = useState(null);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    const fetchDetails = async () => {
+      try {
+        console.log('正在获取系统详细信息，系统ID:', record.id);
+        const data = await informationSystemService.getInformationSystemDetailedInfo(record.id);
+        console.log('成功获取系统详细信息:', data);
+        setDetailedInfo(data);
+      } catch (error) {
+        console.error('获取系统详细信息失败:', error);
+        console.error('错误详情:', error.response || error);
+        message.error(`获取系统详细信息失败: ${error.message || '未知错误'}`);
+      } finally {
+        setLoading(false);
+      }
+    };
+    fetchDetails();
+  }, [record.id]);
+
+  if (loading) {
+    return <div style={{ padding: '20px', textAlign: 'center' }}>加载中...</div>;
+  }
+
+  if (!detailedInfo) {
+    return <div style={{ padding: '20px', textAlign: 'center', color: '#999' }}>暂无详细信息</div>;
+  }
+
+  return (
+    <div style={{ padding: '0 24px' }}>
+      <Tabs
+        size="small"
+        items={[
+          {
+            key: 'products',
+            label: `关联产品 (${detailedInfo.products?.length || 0})`,
+            children: detailedInfo.products && detailedInfo.products.length > 0 ? (
+              <Table
+                dataSource={detailedInfo.products}
+                rowKey="id"
+                size="small"
+                pagination={false}
+                columns={[
+                  { title: '产品名称', dataIndex: 'name', key: 'name' },
+                  { title: '产品类型', dataIndex: 'product_type_display', key: 'product_type' },
+                  {
+                    title: '基础价格',
+                    dataIndex: 'base_price',
+                    key: 'base_price',
+                    render: (price) => `¥${parseFloat(price).toFixed(2)}`
+                  },
+                  { title: '计费单位', dataIndex: 'billing_unit', key: 'billing_unit' },
+                  {
+                    title: 'CPU容量',
+                    dataIndex: 'cpu_capacity',
+                    key: 'cpu_capacity',
+                    render: (cpu) => cpu ? `${cpu} 核` : '-'
+                  },
+                  {
+                    title: '内存容量',
+                    dataIndex: 'memory_capacity',
+                    key: 'memory_capacity',
+                    render: (mem) => mem ? `${mem} GB` : '-'
+                  },
+                  {
+                    title: '存储容量',
+                    dataIndex: 'storage_capacity',
+                    key: 'storage_capacity',
+                    render: (storage) => storage ? `${storage} GB` : '-'
+                  }
+                ]}
+              />
+            ) : (
+              <p style={{ textAlign: 'center', color: '#999', padding: '20px' }}>暂无关联产品</p>
+            )
+          },
+          {
+            key: 'services',
+            label: `关联服务 (${detailedInfo.services?.length || 0})`,
+            children: detailedInfo.services && detailedInfo.services.length > 0 ? (
+              <Table
+                dataSource={detailedInfo.services}
+                rowKey="id"
+                size="small"
+                pagination={false}
+                columns={[
+                  { title: '服务名称', dataIndex: 'name', key: 'name' },
+                  { title: '服务类型', dataIndex: 'service_type_display', key: 'service_type' },
+                  {
+                    title: '基础价格',
+                    dataIndex: 'base_price',
+                    key: 'base_price',
+                    render: (price) => `¥${parseFloat(price).toFixed(2)}`
+                  },
+                  { title: '计费周期', dataIndex: 'billing_cycle', key: 'billing_cycle' },
+                  { title: 'SLA级别', dataIndex: 'sla_level', key: 'sla_level' },
+                  { title: '描述', dataIndex: 'description', key: 'description', ellipsis: true }
+                ]}
+              />
+            ) : (
+              <p style={{ textAlign: 'center', color: '#999', padding: '20px' }}>暂无关联服务</p>
+            )
+          },
+          {
+            key: 'vms',
+            label: `虚拟机 (${detailedInfo.virtual_machines?.length || 0})`,
+            children: detailedInfo.vms_by_datacenter && Object.keys(detailedInfo.vms_by_datacenter).length > 0 ? (
+              <div>
+                {Object.entries(detailedInfo.vms_by_datacenter).map(([datacenter, vms]) => (
+                  <div key={datacenter} style={{ marginBottom: '16px' }}>
+                    <h4 style={{ marginBottom: '8px' }}>数据中心: {datacenter}</h4>
+                    <Table
+                      dataSource={vms}
+                      rowKey="id"
+                      size="small"
+                      pagination={false}
+                      columns={[
+                        { title: '虚拟机名称', dataIndex: 'name', key: 'name' },
+                        {
+                          title: 'CPU',
+                          dataIndex: 'cpu_cores',
+                          key: 'cpu_cores',
+                          render: (cpu) => `${cpu} 核`
+                        },
+                        {
+                          title: '内存',
+                          dataIndex: 'memory_gb',
+                          key: 'memory_gb',
+                          render: (mem) => `${mem} GB`
+                        },
+                        {
+                          title: '存储',
+                          dataIndex: 'disk_gb',
+                          key: 'disk_gb',
+                          render: (disk) => `${disk} GB`
+                        },
+                        {
+                          title: '状态',
+                          dataIndex: 'status',
+                          key: 'status',
+                          render: (status) => (
+                            <Tag color={status === 'active' ? 'green' : status === 'shutoff' ? 'red' : 'orange'}>
+                              {status === 'active' ? '运行中' : status === 'shutoff' ? '已关机' : status}
+                            </Tag>
+                          )
+                        }
+                      ]}
+                    />
+                  </div>
+                ))}
+              </div>
+            ) : (
+              <p style={{ textAlign: 'center', color: '#999', padding: '20px' }}>暂无虚拟机</p>
+            )
+          },
+          {
+            key: 'billing',
+            label: `计费记录 (${detailedInfo.daily_billing?.length || 0})`,
+            children: (
+              <div>
+                {detailedInfo.monthly_cost && (
+                  <Card size="small" style={{ marginBottom: '16px', background: '#f0f2f5' }}>
+                    <Row gutter={16}>
+                      <Col span={8}>
+                        <Statistic
+                          title="本月成本"
+                          value={parseFloat(detailedInfo.monthly_cost).toFixed(2)}
+                          prefix="¥"
+                          valueStyle={{ color: '#cf1322' }}
+                        />
+                      </Col>
+                    </Row>
+                  </Card>
+                )}
+                {detailedInfo.daily_billing && detailedInfo.daily_billing.length > 0 ? (
+                  <Table
+                    dataSource={detailedInfo.daily_billing}
+                    rowKey="billing_date"
+                    size="small"
+                    pagination={{ pageSize: 10 }}
+                    columns={[
+                      {
+                        title: '日期',
+                        dataIndex: 'billing_date',
+                        key: 'billing_date'
+                      },
+                      { title: 'CPU(核)', dataIndex: 'cpu_cores', key: 'cpu_cores' },
+                      { title: '内存(GB)', dataIndex: 'memory_gb', key: 'memory_gb' },
+                      { title: '存储(GB)', dataIndex: 'storage_gb', key: 'storage_gb' },
+                      { title: '运行小时', dataIndex: 'running_hours', key: 'running_hours' },
+                      {
+                        title: '折扣率',
+                        dataIndex: 'discount_rate',
+                        key: 'discount_rate',
+                        render: (rate) => rate ? `${(parseFloat(rate) * 100).toFixed(0)}%` : '-'
+                      },
+                      {
+                        title: '总费用',
+                        dataIndex: 'actual_daily_cost',
+                        key: 'actual_daily_cost',
+                        render: (cost) => `¥${parseFloat(cost).toFixed(2)}`
+                      }
+                    ]}
+                  />
+                ) : (
+                  <p style={{ textAlign: 'center', color: '#999', padding: '20px' }}>暂无计费记录</p>
+                )}
+              </div>
+            )
+          },
+          {
+            key: 'adjustments',
+            label: `资源调整历史 (${detailedInfo.resource_adjustments?.length || 0})`,
+            children: detailedInfo.resource_adjustments && detailedInfo.resource_adjustments.length > 0 ? (
+              <Table
+                dataSource={detailedInfo.resource_adjustments}
+                rowKey="adjustment_date"
+                size="small"
+                pagination={false}
+                columns={[
+                  {
+                    title: '调整时间',
+                    dataIndex: 'adjustment_date',
+                    key: 'adjustment_date'
+                  },
+                  {
+                    title: 'CPU变化',
+                    key: 'cpu_change',
+                    render: (_, record) => `${record.old_cpu} → ${record.new_cpu}`
+                  },
+                  {
+                    title: '内存变化',
+                    key: 'memory_change',
+                    render: (_, record) => `${record.old_memory} → ${record.new_memory}`
+                  },
+                  {
+                    title: '存储变化',
+                    key: 'storage_change',
+                    render: (_, record) => `${record.old_storage} → ${record.new_storage}`
+                  },
+                  { title: '调整详情', dataIndex: 'adjustment_detail', key: 'adjustment_detail', ellipsis: true },
+                  { title: '操作人', dataIndex: 'operator', key: 'operator' }
+                ]}
+              />
+            ) : (
+              <p style={{ textAlign: 'center', color: '#999', padding: '20px' }}>暂无资源调整历史</p>
+            )
+          }
+        ]}
+      />
+    </div>
+  );
+};
 
 const TenantManagement = () => {
   const [tenants, setTenants] = useState([]);
@@ -116,6 +376,15 @@ const TenantManagement = () => {
       // 获取信息系统信息
       const systemsResponse = await tenantService.getTenantInformationSystems(tenant.id);
       const informationSystems = systemsResponse.results || systemsResponse;
+
+      // 获取合同信息
+      let contracts = [];
+      try {
+        const contractsResponse = await contractService.getContracts({ tenant: tenant.id });
+        contracts = contractsResponse.results || contractsResponse;
+      } catch (error) {
+        console.error('获取合同信息失败:', error);
+      }
 
       const tabItems = [
         {
@@ -241,6 +510,7 @@ const TenantManagement = () => {
               {informationSystems.length > 0 ? (
                 <Table
                   dataSource={informationSystems}
+                  rowKey="id"
                   columns={[
                     {
                       title: '系统名称',
@@ -298,11 +568,91 @@ const TenantManagement = () => {
                       render: (storage) => `${storage} GB`
                     }
                   ]}
+                  expandable={{
+                    expandedRowRender: (record) => <SystemDetailExpanded record={record} />,
+                    rowExpandable: (record) => true,
+                  }}
                   pagination={false}
                   size="small"
                 />
               ) : (
                 <p style={{ textAlign: 'center', color: '#999' }}>暂无信息系统</p>
+              )}
+            </div>
+          ),
+        },
+        {
+          key: 'contracts',
+          label: (
+            <span>
+              <FileTextOutlined />
+              合同管理 ({contracts.length})
+            </span>
+          ),
+          children: (
+            <div>
+              {contracts.length > 0 ? (
+                <Table
+                  dataSource={contracts}
+                  columns={[
+                    {
+                      title: '合同编号',
+                      dataIndex: 'contract_number',
+                      key: 'contract_number',
+                    },
+                    {
+                      title: '合同名称',
+                      dataIndex: 'contract_name',
+                      key: 'contract_name',
+                    },
+                    {
+                      title: '合同类型',
+                      dataIndex: 'contract_type_display',
+                      key: 'contract_type',
+                      render: (type) => <Tag color="blue">{type}</Tag>
+                    },
+                    {
+                      title: '合同金额',
+                      dataIndex: 'total_amount',
+                      key: 'total_amount',
+                      render: (amount) => `¥${parseFloat(amount).toLocaleString()}`
+                    },
+                    {
+                      title: '状态',
+                      dataIndex: 'status',
+                      key: 'status',
+                      render: (status) => (
+                        <Tag color={
+                          status === 'active' ? 'green' :
+                          status === 'draft' ? 'default' :
+                          status === 'pending' ? 'orange' :
+                          status === 'expired' ? 'red' : 'gray'
+                        }>
+                          {status === 'active' ? '生效中' :
+                           status === 'draft' ? '草稿' :
+                           status === 'pending' ? '待审批' :
+                           status === 'expired' ? '已过期' : '已终止'}
+                        </Tag>
+                      )
+                    },
+                    {
+                      title: '开始日期',
+                      dataIndex: 'start_date',
+                      key: 'start_date',
+                      render: (date) => formatDate(date)
+                    },
+                    {
+                      title: '结束日期',
+                      dataIndex: 'end_date',
+                      key: 'end_date',
+                      render: (date) => formatDate(date)
+                    }
+                  ]}
+                  pagination={false}
+                  size="small"
+                />
+              ) : (
+                <p style={{ textAlign: 'center', color: '#999' }}>暂无合同信息</p>
               )}
             </div>
           ),

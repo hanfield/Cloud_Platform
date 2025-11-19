@@ -307,6 +307,7 @@ class ProductSubscription(models.Model):
 
     # 订阅状态选择
     class SubscriptionStatus(models.TextChoices):
+        PENDING = 'pending', _('待审批')
         ACTIVE = 'active', _('生效中')
         SUSPENDED = 'suspended', _('已暂停')
         TERMINATED = 'terminated', _('已终止')
@@ -334,7 +335,9 @@ class ProductSubscription(models.Model):
         'contracts.Contract',
         on_delete=models.CASCADE,
         related_name='product_subscriptions',
-        verbose_name=_('合同')
+        verbose_name=_('合同'),
+        null=True,
+        blank=True
     )
 
     # 订阅配置

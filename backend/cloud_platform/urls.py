@@ -11,7 +11,7 @@ from rest_framework_simplejwt.views import (
     TokenVerifyView,
 )
 from apps.tenants.auth_serializers import CustomTokenObtainPairSerializer
-from apps.tenants.user_views import user_register
+from apps.tenants.user_views import user_register, verify_user_for_reset, reset_password
 from rest_framework_simplejwt.views import TokenObtainPairView
 
 
@@ -29,6 +29,10 @@ urlpatterns = [
 
     # 用户注册（公开接口，放在这里绕过DRF全局认证）
     path('api/auth/register/', user_register, name='user-register'),
+
+    # 密码重置（公开接口）
+    path('api/auth/verify-user/', verify_user_for_reset, name='verify-user-reset'),
+    path('api/auth/reset-password/', reset_password, name='reset-password'),
 
     # 应用路由
     path('api/tenants/', include('apps.tenants.urls')),

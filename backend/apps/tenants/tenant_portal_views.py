@@ -8,14 +8,37 @@ from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 from django.shortcuts import get_object_or_404
 from django.db.models import Sum, Count
+from django.utils import timezone
 import logging
+import random
 
 from .models import Tenant, Stakeholder
-from ..information_systems.models import InformationSystem
+from .user_models import UserProfile
+from ..information_systems.models import InformationSystem, VirtualMachine, VMOperationLog
 from ..products.models import Product, ProductSubscription
 from ..services.models import Service, ServiceSubscription
 
 logger = logging.getLogger(__name__)
+
+
+def get_user_tenant(user):
+    """获取用户关联的租户"""
+    try:
+        logger.info(f"获取用户租户: user={user}, user.id={user.id}")
+        profile = user.profile
+        logger.info(f"用户profile: profile_id={profile.id}, tenant={profile.tenant}")
+        if profile.tenant:
+            return profile.tenant
+        # 如果用户profile没有租户，返回None
+        logger.warning(f"用户{user.username}的profile没有关联租户")
+        return None
+    except UserProfile.DoesNotExist:
+        # 如果用户没有profile，返回None
+        logger.error(f"用户{user.username}没有profile")
+        return None
+    except Exception as e:
+        logger.error(f"获取用户租户异常: {str(e)}", exc_info=True)
+        return None
 
 
 @api_view(['GET'])
@@ -23,12 +46,10 @@ logger = logging.getLogger(__name__)
 def tenant_profile(request):
     """获取当前租户的基本信息和干系人信息"""
     try:
-        # 这里假设用户关联了租户，实际项目中需要建立用户-租户关系
-        # 暂时使用第一个租户作为示例
-        tenant = Tenant.objects.first()
-        
+        tenant = get_user_tenant(request.user)
+
         if not tenant:
-            return Response({'error': '未找到租户信息'}, status=status.HTTP_404_NOT_FOUND)
+            return Response({'error': '未找到租户信息，请联系管理员'}, status=status.HTTP_404_NOT_FOUND)
         
         # 获取干系人信息
         stakeholders = Stakeholder.objects.filter(tenant=tenant)
@@ -36,13 +57,14 @@ def tenant_profile(request):
         for sh in stakeholders:
             stakeholder_data.append({
                 'id': sh.id,
-                'role': sh.role,
-                'role_display': sh.get_role_display(),
+                'stakeholder_type': sh.stakeholder_type,
+                'stakeholder_type_display': sh.get_stakeholder_type_display(),
                 'name': sh.name,
                 'phone': sh.phone,  # 已加密
                 'email': sh.email,  # 已加密
                 'department': sh.department,
-                'position': sh.position
+                'position': sh.position,
+                'is_primary': sh.is_primary
             })
         
         # 租户基本信息
@@ -74,8 +96,8 @@ def tenant_profile(request):
 def tenant_systems_overview(request):
     """获取租户的信息系统概览"""
     try:
-        tenant = Tenant.objects.first()
-        
+        tenant = get_user_tenant(request.user)
+
         if not tenant:
             return Response({'error': '未找到租户信息'}, status=status.HTTP_404_NOT_FOUND)
         
@@ -90,8 +112,8 @@ def tenant_systems_overview(request):
                 'code': system.code,
                 'status': system.status,
                 'status_display': system.get_status_display(),
-                'runtime_mode': system.runtime_mode,
-                'runtime_mode_display': system.get_runtime_mode_display(),
+                'operation_mode': system.operation_mode,
+                'operation_mode_display': system.get_operation_mode_display(),
                 'description': system.description,
                 'created_at': system.created_at
             })
@@ -113,53 +135,55 @@ def tenant_systems_overview(request):
 def tenant_orders(request):
     """获取租户的订单信息 - 包括虚拟机、存储、网络等资源"""
     try:
-        tenant = Tenant.objects.first()
-        
+        tenant = get_user_tenant(request.user)
+
         if not tenant:
             return Response({'error': '未找到租户信息'}, status=status.HTTP_404_NOT_FOUND)
-        
+
         # 获取信息系统及其资源
         systems = InformationSystem.objects.filter(tenant=tenant)
-        
+
         orders_data = []
         for system in systems:
-            # 虚拟机信息（模拟数据，实际应从OpenStack获取）
-            vm_resources = [
-                {
-                    'name': f'{system.name}-VM-1',
-                    'ip': '192.168.1.10',
-                    'runtime': '0:00-23:59',
-                    'status': 'running',
-                    'cpu': 4,
-                    'memory': 8,
-                    'disk': 100
-                },
-                {
-                    'name': f'{system.name}-VM-2',
-                    'ip': '192.168.1.11',
-                    'runtime': '0:00-18:32',
-                    'status': 'stopped',
-                    'cpu': 2,
-                    'memory': 4,
-                    'disk': 50
-                }
-            ]
-            
-            # 存储信息
+            # 获取虚拟机信息
+            vms = VirtualMachine.objects.filter(information_system=system)
+            vm_resources = []
+            for vm in vms:
+                vm_resources.append({
+                    'id': str(vm.id),
+                    'name': vm.name,
+                    'ip': vm.ip_address or '未分配',
+                    'runtime': vm.runtime_display,
+                    'status': vm.status,
+                    'status_display': vm.get_status_display(),
+                    'cpu': vm.cpu_cores,
+                    'memory': vm.memory_gb,
+                    'disk': vm.disk_gb,
+                    'os_type': vm.os_type or '未知',
+                    'created_at': vm.created_at.strftime('%Y-%m-%d %H:%M:%S'),
+                    'data_center_type': vm.data_center_type,
+                    'data_center_type_display': vm.get_data_center_type_display(),
+                    'availability_zone': vm.availability_zone or '-',
+                    'region': vm.region or '-',
+                    'last_start_time': vm.last_start_time.strftime('%Y-%m-%d %H:%M:%S') if vm.last_start_time else None,
+                })
+
+            # 存储信息（根据系统总存储计算）
+            total_vm_storage = sum([vm.disk_gb for vm in vms])
             storage_info = {
-                'subscribed_capacity': 500,  # GB
-                'used_capacity': 320,
-                'available_capacity': 180
+                'subscribed_capacity': system.total_storage,  # GB
+                'used_capacity': total_vm_storage,
+                'available_capacity': max(0, system.total_storage - total_vm_storage)
             }
-            
+
             # 网络信息
             network_info = {
                 'line_type': '数据专线',
                 'bandwidth': 100,  # Mbps
-                'start_time': '2025-01-01',
-                'status': 'active'
+                'start_time': system.created_at.strftime('%Y-%m-%d'),
+                'status': 'active' if system.status == 'running' else 'inactive'
             }
-            
+
             orders_data.append({
                 'system_id': str(system.id),
                 'system_name': system.name,
@@ -167,7 +191,7 @@ def tenant_orders(request):
                 'storage': storage_info,
                 'network': network_info
             })
-        
+
         return Response({
             'orders': orders_data,
             'total_systems': len(orders_data)
@@ -182,26 +206,72 @@ def tenant_orders(request):
 def control_resource(request):
     """控制资源的启停"""
     try:
+        tenant = get_user_tenant(request.user)
+        if not tenant:
+            return Response({'error': '未找到租户信息'}, status=status.HTTP_404_NOT_FOUND)
+
         resource_id = request.data.get('resource_id')
         resource_type = request.data.get('resource_type')  # vm, storage, network
         action = request.data.get('action')  # start, stop
-        
+
         if not all([resource_id, resource_type, action]):
             return Response({'error': '缺少必要参数'}, status=status.HTTP_400_BAD_REQUEST)
-        
-        # 这里应该调用OpenStack API进行实际的资源控制
-        # 暂时返回成功响应
-        
+
+        # 处理虚拟机控制
+        if resource_type == 'vm':
+            try:
+                vm = VirtualMachine.objects.get(id=resource_id)
+
+                # 验证虚拟机属于该租户
+                if vm.information_system.tenant != tenant:
+                    return Response({'error': '无权操作此资源'}, status=status.HTTP_403_FORBIDDEN)
+
+                # 执行操作
+                if action == 'start':
+                    vm.status = VirtualMachine.VMStatus.RUNNING
+                    vm.last_start_time = timezone.now()
+                    operation_detail = f'虚拟机 {vm.name} 已启动'
+                elif action == 'stop':
+                    vm.status = VirtualMachine.VMStatus.STOPPED
+                    vm.last_stop_time = timezone.now()
+                    operation_detail = f'虚拟机 {vm.name} 已停止'
+                else:
+                    return Response({'error': '不支持的操作'}, status=status.HTTP_400_BAD_REQUEST)
+
+                vm.save()
+
+                # 记录操作日志
+                VMOperationLog.objects.create(
+                    virtual_machine=vm,
+                    operation_type=action,
+                    operator=request.user,
+                    operation_detail=operation_detail,
+                    success=True
+                )
+
+                return Response({
+                    'success': True,
+                    'message': operation_detail,
+                    'resource_id': resource_id,
+                    'resource_type': resource_type,
+                    'action': action,
+                    'status': vm.status,
+                    'timestamp': timezone.now().strftime('%Y-%m-%d %H:%M:%S')
+                })
+            except VirtualMachine.DoesNotExist:
+                return Response({'error': '虚拟机不存在'}, status=status.HTTP_404_NOT_FOUND)
+
+        # 其他资源类型的控制（暂时返回成功响应）
         return Response({
             'success': True,
             'message': f'资源{action}操作成功',
             'resource_id': resource_id,
             'resource_type': resource_type,
             'action': action,
-            'timestamp': '2025-11-14 10:00:00'
+            'timestamp': timezone.now().strftime('%Y-%m-%d %H:%M:%S')
         })
     except Exception as e:
-        logger.error(f"控制资源失败: {str(e)}")
+        logger.error(f"控制资源失败: {str(e)}", exc_info=True)
         return Response({'error': str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
 
 
@@ -210,8 +280,8 @@ def control_resource(request):
 def tenant_subscriptions(request):
     """获取租户的产品和服务订阅情况"""
     try:
-        tenant = Tenant.objects.first()
-        
+        tenant = get_user_tenant(request.user)
+
         if not tenant:
             return Response({'error': '未找到租户信息'}, status=status.HTTP_404_NOT_FOUND)
         
@@ -262,8 +332,8 @@ def tenant_subscriptions(request):
 def create_information_system(request):
     """租户创建信息系统"""
     try:
-        tenant = Tenant.objects.first()
-        
+        tenant = get_user_tenant(request.user)
+
         if not tenant:
             return Response({'error': '未找到租户信息'}, status=status.HTTP_404_NOT_FOUND)
         
@@ -275,7 +345,8 @@ def create_information_system(request):
             name=data.get('name'),
             code=data.get('code'),
             description=data.get('description', ''),
-            runtime_mode=data.get('runtime_mode', '7x24'),
+            operation_mode=data.get('operation_mode', '7x24'),
+            system_type=data.get('system_type', 'application'),
             status='stopped',
             created_by=request.user
         )
@@ -309,11 +380,13 @@ def available_products(request):
                 'name': product.name,
                 'product_type': product.product_type,
                 'product_type_display': product.get_product_type_display(),
-                'sub_category': product.sub_category,
-                'sub_category_display': product.get_sub_category_display() if product.sub_category else '',
+                'subcategory': product.subcategory,
                 'base_price': str(product.base_price),
                 'billing_unit': product.get_billing_unit_display(),
-                'description': product.description
+                'description': product.description,
+                'cpu_capacity': product.cpu_capacity,
+                'memory_capacity': product.memory_capacity,
+                'storage_capacity': product.storage_capacity
             })
         
         return Response({
@@ -330,38 +403,173 @@ def available_products(request):
 def subscribe_product(request):
     """订阅产品"""
     try:
-        tenant = Tenant.objects.first()
-        
+        tenant = get_user_tenant(request.user)
+
         if not tenant:
             return Response({'error': '未找到租户信息'}, status=status.HTTP_404_NOT_FOUND)
-        
+
         product_id = request.data.get('product_id')
         quantity = request.data.get('quantity', 1)
-        
+
         product = get_object_or_404(Product, id=product_id)
-        
-        # 创建产品订阅
+
+        # 创建产品订阅，默认状态为待审批
         subscription = ProductSubscription.objects.create(
             tenant=tenant,
             product=product,
             quantity=quantity,
             unit_price=product.base_price,
             discount_rate=1.0,
-            status='active',
+            status='pending',  # 改为待审批状态
             start_date=request.data.get('start_date'),
             end_date=request.data.get('end_date')
         )
-        
+
         return Response({
             'success': True,
-            'message': '产品订阅成功',
+            'message': '产品订阅申请已提交，等待管理员审批',
             'subscription': {
                 'id': subscription.id,
                 'product_name': product.name,
                 'quantity': quantity,
-                'monthly_cost': str(subscription.monthly_cost)
+                'monthly_cost': str(subscription.monthly_cost),
+                'status': 'pending'
             }
         }, status=status.HTTP_201_CREATED)
     except Exception as e:
-        logger.error(f"订阅产品失败: {str(e)}")
+        logger.error(f"订阅产品失败: {str(e)}", exc_info=True)
         return Response({'error': str(e)}, status=status.HTTP_400_BAD_REQUEST)
+
+
+@api_view(['POST'])
+@permission_classes([IsAuthenticated])
+def create_virtual_machine(request):
+    """创建虚拟机"""
+    try:
+        tenant = get_user_tenant(request.user)
+        if not tenant:
+            return Response({'error': '未找到租户信息'}, status=status.HTTP_404_NOT_FOUND)
+
+        data = request.data
+        system_id = data.get('system_id')
+
+        if not system_id:
+            return Response({'error': '缺少信息系统ID'}, status=status.HTTP_400_BAD_REQUEST)
+
+        # 获取信息系统并验证权限
+        try:
+            system = InformationSystem.objects.get(id=system_id)
+            if system.tenant != tenant:
+                return Response({'error': '无权在此系统中创建虚拟机'}, status=status.HTTP_403_FORBIDDEN)
+        except InformationSystem.DoesNotExist:
+            return Response({'error': '信息系统不存在'}, status=status.HTTP_404_NOT_FOUND)
+
+        # 创建虚拟机
+        vm = VirtualMachine.objects.create(
+            information_system=system,
+            name=data.get('name'),
+            cpu_cores=data.get('cpu_cores', 2),
+            memory_gb=data.get('memory_gb', 4),
+            disk_gb=data.get('disk_gb', 100),
+            ip_address=data.get('ip_address'),
+            data_center_type=data.get('data_center_type', 'production'),
+            availability_zone=data.get('availability_zone', ''),
+            region=data.get('region', ''),
+            runtime_start=data.get('runtime_start'),
+            runtime_end=data.get('runtime_end'),
+            os_type=data.get('os_type', 'Linux'),
+            os_version=data.get('os_version', ''),
+            description=data.get('description', ''),
+            status=VirtualMachine.VMStatus.STOPPED,
+            created_by=request.user
+        )
+
+        # 记录操作日志
+        VMOperationLog.objects.create(
+            virtual_machine=vm,
+            operation_type='create',
+            operator=request.user,
+            operation_detail=f'创建虚拟机 {vm.name}',
+            success=True
+        )
+
+        return Response({
+            'success': True,
+            'message': '虚拟机创建成功',
+            'vm': {
+                'id': str(vm.id),
+                'name': vm.name,
+                'cpu_cores': vm.cpu_cores,
+                'memory_gb': vm.memory_gb,
+                'disk_gb': vm.disk_gb,
+                'ip_address': vm.ip_address,
+                'status': vm.status,
+                'status_display': vm.get_status_display()
+            }
+        }, status=status.HTTP_201_CREATED)
+    except Exception as e:
+        logger.error(f"创建虚拟机失败: {str(e)}", exc_info=True)
+        return Response({'error': str(e)}, status=status.HTTP_400_BAD_REQUEST)
+
+
+@api_view(['GET'])
+@permission_classes([IsAuthenticated])
+def get_virtual_machine_detail(request, vm_id):
+    """获取虚拟机详细信息"""
+    try:
+        tenant = get_user_tenant(request.user)
+        if not tenant:
+            return Response({'error': '未找到租户信息'}, status=status.HTTP_404_NOT_FOUND)
+
+        # 获取虚拟机并验证权限
+        try:
+            vm = VirtualMachine.objects.get(id=vm_id)
+            if vm.information_system.tenant != tenant:
+                return Response({'error': '无权查看此虚拟机'}, status=status.HTTP_403_FORBIDDEN)
+        except VirtualMachine.DoesNotExist:
+            return Response({'error': '虚拟机不存在'}, status=status.HTTP_404_NOT_FOUND)
+
+        # 获取操作日志
+        logs = VMOperationLog.objects.filter(virtual_machine=vm).order_by('-operation_time')[:10]
+        logs_data = []
+        for log in logs:
+            logs_data.append({
+                'operation_type': log.get_operation_type_display(),
+                'operator': log.operator.username if log.operator else '系统',
+                'operation_time': log.operation_time.strftime('%Y-%m-%d %H:%M:%S'),
+                'operation_detail': log.operation_detail,
+                'success': log.success
+            })
+
+        # 虚拟机详细信息
+        vm_detail = {
+            'id': str(vm.id),
+            'name': vm.name,
+            'information_system': {
+                'id': str(vm.information_system.id),
+                'name': vm.information_system.name,
+                'code': vm.information_system.code
+            },
+            'cpu_cores': vm.cpu_cores,
+            'memory_gb': vm.memory_gb,
+            'disk_gb': vm.disk_gb,
+            'ip_address': vm.ip_address or '未分配',
+            'mac_address': vm.mac_address or '未分配',
+            'status': vm.status,
+            'status_display': vm.get_status_display(),
+            'runtime_start': vm.runtime_start.strftime('%H:%M') if vm.runtime_start else None,
+            'runtime_end': vm.runtime_end.strftime('%H:%M') if vm.runtime_end else None,
+            'runtime_display': vm.runtime_display,
+            'os_type': vm.os_type or '未知',
+            'os_version': vm.os_version or '未知',
+            'description': vm.description,
+            'created_at': vm.created_at.strftime('%Y-%m-%d %H:%M:%S'),
+            'last_start_time': vm.last_start_time.strftime('%Y-%m-%d %H:%M:%S') if vm.last_start_time else None,
+            'last_stop_time': vm.last_stop_time.strftime('%Y-%m-%d %H:%M:%S') if vm.last_stop_time else None,
+            'operation_logs': logs_data
+        }
+
+        return Response(vm_detail)
+    except Exception as e:
+        logger.error(f"获取虚拟机详情失败: {str(e)}", exc_info=True)
+        return Response({'error': str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)

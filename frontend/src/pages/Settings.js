@@ -538,25 +538,6 @@ const Settings = () => {
           </Card>
         </TabPane>
 
-        {/* 用户管理 */}
-        <TabPane
-          tab={
-            <span>
-              <UserOutlined />
-              用户管理
-            </span>
-          }
-          key="5"
-        >
-          <Card>
-            <div style={{ textAlign: 'center', padding: '60px 20px' }}>
-              <UserOutlined style={{ fontSize: 64, color: '#d9d9d9' }} />
-              <h3 style={{ marginTop: 20, color: '#8c8c8c' }}>用户管理功能</h3>
-              <p style={{ color: '#bfbfbf' }}>此功能正在开发中，敬请期待...</p>
-            </div>
-          </Card>
-        </TabPane>
-
         {/* 安全设置 */}
         <TabPane
           tab={

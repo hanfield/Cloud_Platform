@@ -10,15 +10,25 @@
 
 #### 管理员功能
 - **仪表板**: 系统概览、资源统计、运营数据
-- **租户管理**: 租户信息管理、资源配额、干系人管理
+- **租户管理**:
+  - 租户信息管理、资源配额、干系人管理
+  - 租户详情查看（基本信息、干系人、信息系统、合同管理）
+  - 租户状态管理（激活/暂停/终止）
 - **用户管理**: 用户创建、审核、权限管理、密码重置
-- **合同管理**: 合同创建、审批、续约管理
-- **信息系统管理**: 系统创建、资源分配、运行监控
+- **信息系统管理**:
+  - 系统创建、资源分配、运行监控
+  - 产品和服务关联
+  - 虚拟机资源管理
+  - 每日计费记录查看
+  - 资源调整历史跟踪
 - **产品管理**: 产品定义、定价策略、库存管理
 - **服务管理**: 服务目录、服务订阅、服务监控
 - **资产管理**: 物理资产、虚拟资产管理
 - **云资源管理**: OpenStack资源管理
-- **系统设置**: 系统配置、用户管理
+- **自动化任务**:
+  - 每日自动计费（凌晨0:10执行）
+  - 资源变更检测（每小时执行）
+  - 虚拟机状态同步（每5分钟执行）
 
 #### 租户功能
 - **用户注册**: 租户用户自助注册（需管理员审核）
@@ -38,7 +48,10 @@
 - **框架**: Django 4.2
 - **API**: Django REST Framework
 - **认证**: JWT (djangorestframework-simplejwt)
-- **数据库**: SQLite (开发环境) / PostgreSQL (生产环境)
+- **数据库**: PostgreSQL 14+
+- **任务队列**: Celery 5.3+
+- **消息代理**: Redis 7.0+
+- **定时任务**: Celery Beat
 - **云平台集成**: OpenStack SDK
 
 ### 前端
@@ -50,13 +63,95 @@
 
 ## 快速开始
 
-### 环境要求
+### 方式一：Docker 一键启动（推荐）
+
+**最简单的方式，无需安装Python和Node.js**
+
+#### 前提条件
+- 安装 [Docker Desktop](https://www.docker.com/get-started)
+
+#### 启动步骤
+
+**Windows用户**：双击运行 \`start.bat\`
+
+**macOS/Linux用户**：
+\`\`\`bash
+./start.sh
+\`\`\`
+
+**或手动启动**：
+\`\`\`bash
+docker-compose up --build -d
+\`\`\`
+
+访问 http://localhost:3000 即可使用系统。
+
+详细说明请查看 [DOCKER_GUIDE.md](./DOCKER_GUIDE.md)
+
+---
+
+### 方式二：本地开发环境
+
+#### 环境要求
 
 - Python 3.9+
 - Node.js 16+
 - npm 或 yarn
+- PostgreSQL 14+
+- Redis 7.0+ (用于Celery任务队列)
 
-### 后端安装
+#### Redis 安装
+
+**macOS (使用 Homebrew)**:
+```bash
+brew install redis
+brew services start redis
+```
+
+**Ubuntu/Debian**:
+```bash
+sudo apt update
+sudo apt install redis-server
+sudo systemctl start redis
+```
+
+**Windows**:
+- 下载 [Redis for Windows](https://github.com/microsoftarchive/redis/releases)
+- 或使用 WSL (Windows Subsystem for Linux)
+
+#### PostgreSQL 安装
+
+**macOS (使用 Homebrew)**:
+```bash
+brew install postgresql@14
+brew services start postgresql@14
+createdb cloud_platform
+```
+
+**Ubuntu/Debian**:
+```bash
+sudo apt update
+sudo apt install postgresql-14
+sudo systemctl start postgresql
+sudo -u postgres createdb cloud_platform
+```
+
+**Windows**:
+1. 从 [PostgreSQL官网](https://www.postgresql.org/download/windows/) 下载安装程序
+2. 安装后，使用 pgAdmin 或命令行创建数据库 `cloud_platform`
+
+#### 配置数据库
+
+创建 `backend/.env` 文件并配置数据库连接：
+```
+DB_NAME=cloud_platform
+DB_USER=your_postgres_user
+DB_PASSWORD=your_postgres_password
+DB_HOST=localhost
+DB_PORT=5432
+```
+
+#### 后端安装
 
 \`\`\`bash
 # 进入后端目录
@@ -176,7 +271,71 @@ python init_data.py
 ### 租户门户
 - \`/api/tenants/portal/\` - 租户门户API
 
+### 信息系统详细信息
+- \`GET /api/information-systems/{id}/detailed_info/\` - 获取系统完整信息
+  - 基本信息
+  - 关联的产品和服务
+  - 虚拟机列表（按数据中心分组）
+  - 每日计费记录（最近30天）
+  - 资源调整历史（最近10条）
+  - 月度成本统计
+
 详细API文档请查看 [API.md](./API.md)
+
+## Celery定时任务
+
+系统使用Celery实现自动化定时任务，需要Redis作为消息代理。
+
+### 启动Celery服务
+
+**确保Redis已启动**：
+\`\`\`bash
+# macOS
+brew services start redis
+
+# Linux
+sudo systemctl start redis
+\`\`\`
+
+**启动Celery Worker（执行任务）**：
+\`\`\`bash
+cd backend
+celery -A cloud_platform worker -l info
+\`\`\`
+
+**启动Celery Beat（定时调度）**：
+\`\`\`bash
+# 在新的终端窗口中
+cd backend
+celery -A cloud_platform beat -l info
+\`\`\`
+
+**（可选）启动Flower监控面板**：
+\`\`\`bash
+pip install flower
+celery -A cloud_platform flower
+# 访问 http://localhost:5555
+\`\`\`
+
+### 定时任务说明
+
+| 任务名称 | 执行时间 | 功能说明 |
+|---------|---------|---------|
+| 每日计费 | 每天凌晨0:10 | 自动为所有信息系统生成前一天的计费记录 |
+| 资源变更检测 | 每小时整点 | 检测虚拟机资源配置变化并记录 |
+| 虚拟机状态同步 | 每5分钟 | 同步虚拟机运行状态 |
+
+### 计费规则
+
+- **CPU**: 0.1元/核/小时
+- **内存**: 0.05元/GB/小时
+- **存储**: 0.01元/GB/小时
+- **运行时间**:
+  - 7x24模式: 24小时/天
+  - 5x8模式: 8小时/天
+- **折扣**: 自动应用租户的discount_rate
+
+详细使用说明请查看 [CELERY_GUIDE.md](./backend/CELERY_GUIDE.md)
 
 ## 测试
 
@@ -197,6 +356,29 @@ python test_crud.py
 - **JWT Token**: Token中包含用户类型和租户ID，用于权限验证
 
 ## 更新日志
+
+### v1.2.0 (最新)
+- ✅ **Celery定时任务系统**
+  - 每日自动计费任务（凌晨0:10执行）
+  - 资源变更检测（每小时执行）
+  - 虚拟机状态同步（每5分钟执行）
+  - Redis消息队列集成
+- ✅ **信息系统增强**
+  - 产品和服务关联（ManyToManyField）
+  - 详细信息API端点（detailed_info）
+  - 每日计费记录模型和查询
+  - 资源调整历史跟踪
+  - 月度成本统计
+- ✅ **计费系统**
+  - 自动化每日计费记录生成
+  - 灵活的定价模型（CPU/内存/存储）
+  - 租户折扣率自动应用
+  - 7x24和5x8运行模式支持
+- ✅ **管理员门户优化**
+  - 租户管理界面整合
+  - 合同管理集成到租户详情
+  - 信息系统展示在租户详情中
+  - 侧边栏菜单简化（7个核心模块）
 
 ### v1.1.0
 - ✅ 用户管理系统

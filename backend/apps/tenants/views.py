@@ -8,7 +8,7 @@ from django.shortcuts import get_object_or_404
 from rest_framework import status, viewsets
 from rest_framework.decorators import action
 from rest_framework.response import Response
-from rest_framework.permissions import IsAuthenticated
+from rest_framework.permissions import IsAuthenticated, AllowAny
 from django_filters.rest_framework import DjangoFilterBackend
 from rest_framework import filters
 
@@ -279,6 +279,21 @@ class TenantViewSet(viewsets.ModelViewSet):
 
         serializer = InformationSystemSerializer(systems, many=True)
         return Response(serializer.data)
+
+    @action(detail=False, methods=['get'], permission_classes=[AllowAny])
+    def public_list(self, request):
+        """公开的租户列表（仅用于注册页面）"""
+        # 只返回活跃状态的租户
+        tenants = Tenant.objects.filter(status=Tenant.Status.ACTIVE).order_by('name')
+
+        # 简化的租户信息
+        data = [{
+            'id': str(tenant.id),
+            'name': tenant.name,
+            'code': tenant.code
+        } for tenant in tenants]
+
+        return Response(data)
 
 
 class TenantResourceUsageViewSet(viewsets.ModelViewSet):

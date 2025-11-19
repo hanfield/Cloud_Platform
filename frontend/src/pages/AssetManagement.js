@@ -28,10 +28,11 @@ const AssetManagement = () => {
         page: pagination.current,
         page_size: pagination.pageSize
       });
-      setAssets(response.data.results || []);
-      setPagination({ ...pagination, total: response.data.count });
+      setAssets(response.results || []);
+      setPagination({ ...pagination, total: response.count || 0 });
     } catch (error) {
       message.error('获取资产列表失败');
+      setAssets([]);
     } finally {
       setLoading(false);
     }
@@ -40,9 +41,10 @@ const AssetManagement = () => {
   const fetchStatistics = async () => {
     try {
       const response = await assetService.getPhysicalAssetStatistics();
-      setStatistics(response.data);
+      setStatistics(response || {});
     } catch (error) {
       console.error('获取统计信息失败', error);
+      setStatistics({});
     }
   };
 

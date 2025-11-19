@@ -20,8 +20,50 @@ from .user_serializers import (
     UserProfileSerializer, UserRegisterSerializer, UserCreateSerializer,
     UserUpdateSerializer, UserPasswordResetSerializer, UserListSerializer
 )
+from .models import Stakeholder
 
 logger = logging.getLogger(__name__)
+
+
+def sync_user_to_stakeholder(profile):
+    """
+    同步用户到干系人列表
+    - 已激活(active)状态：添加到干系人列表
+    - 待审核(pending)和已拒绝(rejected)状态：从干系人列表移除
+    - 已暂停(suspended)状态：保留在干系人列表
+    """
+    if not profile.tenant:
+        return
+
+    # 查找是否已存在对应的干系人记录
+    # 通过notes字段中的用户名来查找（因为email是加密的）
+    existing_stakeholder = Stakeholder.objects.filter(
+        tenant=profile.tenant,
+        notes__contains=f'系统用户: {profile.user.username}'
+    ).first()
+
+    if profile.status == UserProfile.UserStatus.ACTIVE:
+        # 激活状态：添加或更新干系人
+        if not existing_stakeholder:
+            stakeholder = Stakeholder(tenant=profile.tenant)
+            stakeholder.name = profile.user.username
+            stakeholder.phone = profile.phone or ''
+            stakeholder.email = profile.user.email
+            stakeholder.position = profile.position or ''
+            stakeholder.department = profile.department or ''
+            stakeholder.stakeholder_type = Stakeholder.StakeholderType.CUSTOMER
+            stakeholder.is_primary = False
+            stakeholder.notes = f'系统用户: {profile.user.username}'
+            stakeholder.save()
+            logger.info(f"用户 {profile.user.username} 已添加到租户 {profile.tenant.name} 的干系人列表")
+
+    elif profile.status in [UserProfile.UserStatus.PENDING, UserProfile.UserStatus.REJECTED]:
+        # 待审核或已拒绝状态：移除干系人
+        if existing_stakeholder:
+            existing_stakeholder.delete()
+            logger.info(f"用户 {profile.user.username} 已从租户 {profile.tenant.name} 的干系人列表移除")
+
+    # 暂停状态不做处理，保留在干系人列表中
 
 
 @csrf_exempt
@@ -34,6 +76,7 @@ def user_register(request):
     """
     try:
         data = json.loads(request.body)
+        logger.info(f"收到注册请求数据: {data}")
         serializer = UserRegisterSerializer(data=data)
 
         if serializer.is_valid():
@@ -45,11 +88,13 @@ def user_register(request):
                 'status': profile.status
             }, status=201)
 
+        logger.error(f"注册验证失败: {serializer.errors}")
         return JsonResponse(serializer.errors, status=400)
     except json.JSONDecodeError:
+        logger.error("注册失败: 无效的JSON数据")
         return JsonResponse({'detail': '无效的JSON数据'}, status=400)
     except Exception as e:
-        logger.error(f"注册失败: {str(e)}")
+        logger.error(f"注册失败: {str(e)}", exc_info=True)
         return JsonResponse({'detail': str(e)}, status=500)
 
 
@@ -107,6 +152,17 @@ class UserProfileViewSet(viewsets.ModelViewSet):
     def perform_destroy(self, instance):
         """删除用户"""
         username = instance.user.username
+
+        # 删除对应的干系人记录
+        if instance.tenant:
+            stakeholder = Stakeholder.objects.filter(
+                tenant=instance.tenant,
+                notes__contains=f'系统用户: {username}'
+            ).first()
+            if stakeholder:
+                stakeholder.delete()
+                logger.info(f"已删除用户 {username} 对应的干系人记录")
+
         instance.user.delete()
         logger.info(f"管理员 {self.request.user.username} 删除了用户 {username}")
 
@@ -125,6 +181,9 @@ class UserProfileViewSet(viewsets.ModelViewSet):
         profile.user.is_active = True
         profile.save()
         profile.user.save()
+
+        # 同步到干系人列表
+        sync_user_to_stakeholder(profile)
 
         logger.info(f"管理员 {request.user.username} 审核通过了用户 {profile.user.username}")
         return Response({'detail': '用户已审核通过'}, status=status.HTTP_200_OK)
@@ -145,6 +204,9 @@ class UserProfileViewSet(viewsets.ModelViewSet):
         profile.save()
         profile.user.save()
 
+        # 从干系人列表移除
+        sync_user_to_stakeholder(profile)
+
         logger.info(f"管理员 {request.user.username} 拒绝了用户 {profile.user.username}")
         return Response({'detail': '用户注册已拒绝'}, status=status.HTTP_200_OK)
 
@@ -156,6 +218,9 @@ class UserProfileViewSet(viewsets.ModelViewSet):
         profile.user.is_active = True
         profile.save()
         profile.user.save()
+
+        # 同步到干系人列表
+        sync_user_to_stakeholder(profile)
 
         logger.info(f"管理员 {request.user.username} 激活了用户 {profile.user.username}")
         return Response({'detail': '用户已激活'}, status=status.HTTP_200_OK)
@@ -225,3 +290,86 @@ class UserProfileViewSet(viewsets.ModelViewSet):
                 {'detail': '用户配置不存在'},
                 status=status.HTTP_404_NOT_FOUND
             )
+
+
+@csrf_exempt
+@require_http_methods(["POST"])
+def verify_user_for_reset(request):
+    """
+    验证用户信息用于密码重置（公开接口）
+    用户提供用户名和邮箱，验证是否匹配
+    """
+    try:
+        data = json.loads(request.body)
+        username = data.get('username')
+        email = data.get('email')
+
+        if not username or not email:
+            return JsonResponse({'detail': '请提供用户名和邮箱'}, status=400)
+
+        try:
+            user = User.objects.get(username=username, email=email)
+            logger.info(f"用户 {username} 验证成功，准备重置密码")
+            return JsonResponse({
+                'detail': '验证成功',
+                'user_id': user.id,
+                'username': user.username
+            }, status=200)
+        except User.DoesNotExist:
+            logger.warning(f"密码重置验证失败: 用户名 {username} 和邮箱不匹配")
+            return JsonResponse({'detail': '用户名或邮箱不正确'}, status=404)
+
+    except json.JSONDecodeError:
+        return JsonResponse({'detail': '无效的JSON数据'}, status=400)
+    except Exception as e:
+        logger.error(f"验证用户失败: {str(e)}", exc_info=True)
+        return JsonResponse({'detail': str(e)}, status=500)
+
+
+@csrf_exempt
+@require_http_methods(["POST"])
+def reset_password(request):
+    """
+    重置用户密码（公开接口）
+    需要先通过验证接口验证用户身份
+    """
+    try:
+        data = json.loads(request.body)
+        username = data.get('username')
+        email = data.get('email')
+        new_password = data.get('new_password')
+        confirm_password = data.get('confirm_password')
+
+        if not all([username, email, new_password, confirm_password]):
+            return JsonResponse({'detail': '请提供所有必需的信息'}, status=400)
+
+        if new_password != confirm_password:
+            return JsonResponse({'detail': '两次输入的密码不一致'}, status=400)
+
+        # 再次验证用户信息
+        try:
+            user = User.objects.get(username=username, email=email)
+        except User.DoesNotExist:
+            return JsonResponse({'detail': '用户名或邮箱不正确'}, status=404)
+
+        # 验证密码强度
+        from django.contrib.auth.password_validation import validate_password
+        try:
+            validate_password(new_password, user=user)
+        except Exception as e:
+            return JsonResponse({'detail': str(e)}, status=400)
+
+        # 重置密码
+        user.set_password(new_password)
+        user.save()
+
+        logger.info(f"用户 {username} 成功重置密码")
+        return JsonResponse({
+            'detail': '密码重置成功，请使用新密码登录'
+        }, status=200)
+
+    except json.JSONDecodeError:
+        return JsonResponse({'detail': '无效的JSON数据'}, status=400)
+    except Exception as e:
+        logger.error(f"重置密码失败: {str(e)}", exc_info=True)
+        return JsonResponse({'detail': str(e)}, status=500)

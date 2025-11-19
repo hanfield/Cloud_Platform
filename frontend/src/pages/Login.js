@@ -23,21 +23,24 @@ const Login = () => {
         password: values.password
       });
 
+      // 使用API返回的实际数据
       const userData = {
-        username: values.username,
-        user_type: userType
+        username: response.username || values.username,
+        user_type: response.user_type || userType,
+        email: response.email || '',
+        user_id: response.user_id
       };
 
       localStorage.setItem('access_token', response.access);
       localStorage.setItem('refresh_token', response.refresh);
-      localStorage.setItem('user_type', userType);
+      localStorage.setItem('user_type', response.user_type || userType);
       localStorage.setItem('user', JSON.stringify(userData));
 
       message.success('登录成功！');
 
       window.dispatchEvent(new Event('storage'));
 
-      const redirectPath = userType === 'admin' ? '/dashboard' : '/tenant-portal';
+      const redirectPath = (response.user_type || userType) === 'admin' ? '/dashboard' : '/tenant-portal';
       navigate(redirectPath, { replace: true });
     } catch (error) {
       message.error('登录失败：用户名或密码错误');
@@ -136,8 +139,11 @@ const Login = () => {
         </div>
 
         <div style={{ textAlign: 'center' }}>
-          还没有账号？
-          <Button type="link" onClick={() => window.location.href = '/register'}>
+          <Button type="link" onClick={() => navigate('/forgot-password')}>
+            忘记密码？
+          </Button>
+          <span style={{ color: '#d9d9d9' }}>|</span>
+          <Button type="link" onClick={() => navigate('/register')}>
             立即注册
           </Button>
         </div>

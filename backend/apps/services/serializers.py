@@ -171,10 +171,12 @@ class ServiceSubscriptionCreateSerializer(serializers.ModelSerializer):
 class ServiceStatisticsSerializer(serializers.Serializer):
     """服务统计序列化器"""
 
-    total_services = serializers.IntegerField()
-    active_services = serializers.IntegerField()
-    inactive_services = serializers.IntegerField()
-    draft_services = serializers.IntegerField()
+    total_count = serializers.IntegerField()
+    active_count = serializers.IntegerField()
+    inactive_count = serializers.IntegerField()
+    draft_count = serializers.IntegerField()
+    subscription_count = serializers.IntegerField()
+    monthly_revenue = serializers.FloatField()
     service_types = serializers.DictField()
     availability_levels = serializers.DictField()
 

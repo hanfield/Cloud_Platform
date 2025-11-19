@@ -15,20 +15,21 @@ import {
   SafetyOutlined
 } from '@ant-design/icons';
 import { formatDateTime } from '../utils/helpers';
+import api from '../services/api';
 
 const Profile = () => {
   const [loading, setLoading] = useState(false);
   const [userInfo, setUserInfo] = useState({
-    username: 'admin',
-    email: 'admin@cloudplatform.com',
-    phone: '13800138000',
-    firstName: '管理员',
-    lastName: '系统',
-    department: 'IT部门',
-    position: '系统管理员',
+    username: '',
+    email: '',
+    phone: '',
+    firstName: '',
+    lastName: '',
+    department: '',
+    position: '',
     avatar: null,
-    joinDate: '2024-01-01',
-    lastLogin: new Date().toISOString()
+    joinDate: '',
+    lastLogin: ''
   });
 
   const [passwordVisible, setPasswordVisible] = useState(false);
@@ -65,20 +66,34 @@ const Profile = () => {
   ]);
 
   useEffect(() => {
-    // 从localStorage获取用户信息
-    const savedUser = localStorage.getItem('user');
-    if (savedUser) {
+    // 从后端API获取当前用户信息
+    const fetchUserProfile = async () => {
+      setLoading(true);
       try {
-        const user = JSON.parse(savedUser);
-        setUserInfo(prevState => ({
-          ...prevState,
-          ...user
-        }));
-        form.setFieldsValue(user);
+        const response = await api.get('/tenants/users/me/');
+        const profileData = {
+          username: response.username || '',
+          email: response.email || '',
+          phone: response.phone || '',
+          firstName: '',
+          lastName: '',
+          department: response.department || '',
+          position: response.position || '',
+          avatar: null,
+          joinDate: response.created_at ? response.created_at.split('T')[0] : '',
+          lastLogin: response.updated_at || ''
+        };
+        setUserInfo(profileData);
+        form.setFieldsValue(profileData);
       } catch (error) {
-        console.error('Failed to parse user info:', error);
+        console.error('获取用户信息失败:', error);
+        message.error('获取用户信息失败');
+      } finally {
+        setLoading(false);
       }
-    }
+    };
+
+    fetchUserProfile();
   }, [form]);
 
   // 更新个人信息
