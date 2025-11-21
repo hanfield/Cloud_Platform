@@ -35,7 +35,7 @@ env/
 db.sqlite3
 db.sqlite3-journal
 
-# MySQL
+# PostgreSQL
 *.sql
 *.dump
 /backend/backups/

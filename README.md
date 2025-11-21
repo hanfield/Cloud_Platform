@@ -32,7 +32,7 @@
 ### 后端
 - **框架**：Django 4.2
 - **API**：Django REST Framework
-- **数据库**：MySQL
+- **数据库**：PostgreSQL
 - **认证**：JWT (djangorestframework-simplejwt)
 - **云平台**：OpenStack集成
 - **监控**：psutil系统监控、ActivityLog日志系统
@@ -86,7 +86,7 @@ Yunpingtai/
 ### 前置要求
 - Python 3.9+
 - Node.js 14+
-- MySQL 5.7+
+- PostgreSQL 12+
 - (可选) OpenStack环境
 
 ### 后端安装
