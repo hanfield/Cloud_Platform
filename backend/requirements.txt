@@ -38,4 +38,4 @@ requests==2.31.0
 # pytest==7.3.1
 # pytest-django==4.5.2
 # factory-boy==3.2.1
-# faker==18.9.0
+# faker==18.9.0psutil==5.9.6

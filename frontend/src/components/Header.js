@@ -42,17 +42,27 @@ const AppHeader = ({ collapsed, onToggle }) => {
 
   const fetchSystemName = async () => {
     try {
+      const token = localStorage.getItem('access_token');
+      console.log('Fetching system name with token:', token ? 'exists' : 'missing');
+
       const response = await fetch('/api/system/settings/category/?name=system', {
         headers: {
-          'Authorization': `Bearer ${localStorage.getItem('access_token')}`
+          'Authorization': `Bearer ${token}`
         }
       });
 
+      console.log('System name response status:', response.status);
+
       if (response.ok) {
         const data = await response.json();
+        console.log('System settings data:', data);
+
         if (data.settings && data.settings.systemName) {
+          console.log('Setting system name to:', data.settings.systemName);
           setSystemName(data.settings.systemName);
         }
+      } else {
+        console.error('Failed to fetch system name:', response.status);
       }
     } catch (error) {
       console.error('Failed to load system name:', error);

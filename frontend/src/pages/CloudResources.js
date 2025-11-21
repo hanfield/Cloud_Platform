@@ -70,7 +70,7 @@ const CloudResources = () => {
 
   const fetchVMOverview = async () => {
     try {
-      const token = localStorage.getItem('token');
+      const token = localStorage.getItem('access_token');
       const response = await axios.get('/api/information-systems/virtual_machines_overview/', {
         headers: { Authorization: `Bearer ${token}` }
       });

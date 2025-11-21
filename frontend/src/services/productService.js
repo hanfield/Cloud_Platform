@@ -30,8 +30,8 @@ export const deleteProduct = async (id) => {
 };
 
 // 获取产品统计信息
-export const getProductStatistics = async () => {
-  return request.get('/products/statistics/');
+export const getProductStatistics = () => {
+  return request.get('/products/products/statistics/');
 };
 
 // 获取产品定价策略
@@ -46,22 +46,22 @@ export const updateProductPricing = async (id, data) => {
 
 // 获取折扣级别列表
 export const getDiscountLevels = async () => {
-  return request.get('/discount-levels/');
+  return request.get('/products/discount-levels/');
 };
 
 // 创建折扣级别
 export const createDiscountLevel = async (data) => {
-  return request.post('/discount-levels/', data);
+  return request.post('/products/discount-levels/', data);
 };
 
 // 更新折扣级别
 export const updateDiscountLevel = async (id, data) => {
-  return request.put(`/discount-levels/${id}/`, data);
+  return request.put(`/products/discount-levels/${id}/`, data);
 };
 
 // 删除折扣级别
 export const deleteDiscountLevel = async (id) => {
-  return request.delete(`/discount-levels/${id}/`);
+  return request.delete(`/products/discount-levels/${id}/`);
 };
 
 // 获取租户产品订阅

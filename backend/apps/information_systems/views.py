@@ -362,7 +362,7 @@ class InformationSystemViewSet(viewsets.ModelViewSet):
         # 按数据中心类型统计
         datacenter_stats = {}
         for dc_type, dc_name in VirtualMachine.DataCenterType.choices:
-            datacenter_stats[dc_name] = all_vms.filter(data_center_type=dc_type).count()
+            datacenter_stats[str(dc_name)] = all_vms.filter(data_center_type=dc_type).count()
 
         # 资源总量统计
         total_cpu = sum(vm.cpu_cores for vm in all_vms)

@@ -96,7 +96,7 @@ class ProductViewSet(viewsets.ModelViewSet):
                 product_type=product_type[0],
                 status=Product.Status.ACTIVE
             ).count()
-            product_types[product_type[1]] = count
+            product_types[str(product_type[1])] = count
 
         # 按定价模型统计
         pricing_models = {}
@@ -105,7 +105,7 @@ class ProductViewSet(viewsets.ModelViewSet):
                 pricing_model=pricing_model[0],
                 status=Product.Status.ACTIVE
             ).count()
-            pricing_models[pricing_model[1]] = count
+            pricing_models[str(pricing_model[1])] = count
 
         return Response({
             'total_products': total_products,

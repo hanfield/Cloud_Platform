@@ -29,8 +29,23 @@ const Dashboard = () => {
     contracts: { total: 0, active: 0 }
   });
 
+  // 监控数据
+  const [resources, setResources] = useState({
+    cpu_usage: 0,
+    memory_usage: 0,
+    disk_usage: 0
+  });
+  const [services, setServices] = useState([]);
+  const [activities, setActivities] = useState([]);
+  const [healthScore, setHealthScore] = useState(99.8);
+
   useEffect(() => {
     fetchDashboardData();
+    fetchMonitoringData();
+
+    // 每5秒刷新一次监控数据
+    const interval = setInterval(fetchMonitoringData, 5000);
+    return () => clearInterval(interval);
   }, []);
 
   const fetchDashboardData = async () => {
@@ -53,6 +68,46 @@ const Dashboard = () => {
       setLoading(false);
     }
   };
+
+  const fetchMonitoringData = async () => {
+    try {
+      const token = localStorage.getItem('access_token');
+      const headers = {
+        'Authorization': `Bearer ${token}`
+      };
+
+      // 获取系统资源
+      const resourcesRes = await fetch('/api/monitoring/resources/', { headers });
+      if (resourcesRes.ok) {
+        const resourcesData = await resourcesRes.json();
+        setResources(resourcesData);
+      }
+
+      // 获取服务状态
+      const servicesRes = await fetch('/api/monitoring/services/', { headers });
+      if (servicesRes.ok) {
+        const servicesData = await servicesRes.json();
+        setServices(servicesData.services || []);
+      }
+
+      // 获取最近活动
+      const activitiesRes = await fetch('/api/monitoring/activities/?limit=5', { headers });
+      if (activitiesRes.ok) {
+        const activitiesData = await activitiesRes.json();
+        setActivities(activitiesData);
+      }
+
+      // 获取健康度
+      const healthRes = await fetch('/api/monitoring/health/', { headers });
+      if (healthRes.ok) {
+        const healthData = await healthRes.json();
+        setHealthScore(healthData.health_score);
+      }
+    } catch (error) {
+      console.error('获取监控数据失败:', error);
+    }
+  };
+
 
   // 快捷操作
   const quickActions = [
@@ -79,38 +134,6 @@ const Dashboard = () => {
       icon: <CloudServerOutlined />,
       color: '#722ed1',
       onClick: () => navigate('/cloud-resources')
-    }
-  ];
-
-  // 系统状态
-  const systemStatus = [
-    { name: '计算服务', status: 'running', uptime: '99.9%', color: 'success' },
-    { name: '存储服务', status: 'running', uptime: '99.8%', color: 'success' },
-    { name: '网络服务', status: 'running', uptime: '99.9%', color: 'success' },
-    { name: '数据库服务', status: 'running', uptime: '99.7%', color: 'success' }
-  ];
-
-  // 最近活动
-  const recentActivities = [
-    {
-      time: '2分钟前',
-      type: 'success',
-      content: '用户 admin_test 登录系统'
-    },
-    {
-      time: '15分钟前',
-      type: 'info',
-      content: '租户"测试租户公司"创建了新用户'
-    },
-    {
-      time: '1小时前',
-      type: 'warning',
-      content: '合同 CON-2024-001 即将到期'
-    },
-    {
-      time: '2小时前',
-      type: 'success',
-      content: '系统完成自动备份'
     }
   ];
 
@@ -234,7 +257,7 @@ const Dashboard = () => {
           <Card bordered={false} hoverable className="animate-slide-up delay-400">
             <Statistic
               title="系统健康度"
-              value={99.8}
+              value={healthScore}
               prefix={<RiseOutlined />}
               suffix="%"
               precision={1}
@@ -242,7 +265,7 @@ const Dashboard = () => {
             />
             <Divider style={{ margin: '12px 0' }} />
             <Text type="secondary" style={{ fontSize: '13px' }}>
-              所有服务运行正常
+              {healthScore > 90 ? '所有服务运行正常' : healthScore > 70 ? '系统运行良好' : '需要关注'}
             </Text>
           </Card>
         </Col>
@@ -296,13 +319,15 @@ const Dashboard = () => {
               </Space>
             }
             extra={<Tag color="success">全部正常</Tag>}
+            bodyStyle={{ minHeight: 280 }}
           >
             <Table
-              dataSource={systemStatus}
+              dataSource={services}
               columns={statusColumns}
               pagination={false}
               size="middle"
               rowKey="name"
+              loading={services.length === 0}
             />
           </Card>
         </Col>
@@ -318,21 +343,34 @@ const Dashboard = () => {
               </Space>
             }
             extra={<Button type="link" size="small">查看全部</Button>}
+            bodyStyle={{ minHeight: 280 }}
           >
-            <Timeline
-              items={recentActivities.map(activity => ({
-                color: activity.type === 'success' ? 'green' :
-                  activity.type === 'warning' ? 'orange' : 'blue',
-                children: (
-                  <div>
-                    <Text type="secondary" style={{ fontSize: 12 }}>
-                      {activity.time}
-                    </Text>
-                    <div>{activity.content}</div>
-                  </div>
-                )
-              }))}
-            />
+            {activities.length > 0 ? (
+              <Timeline
+                items={activities.map(activity => ({
+                  color: activity.type === 'success' || activity.type === 'login' ? 'green' :
+                    activity.type === 'warning' ? 'orange' : 'blue',
+                  children: (
+                    <div>
+                      <Text type="secondary" style={{ fontSize: 12 }}>
+                        {activity.time}
+                      </Text>
+                      <div>{activity.content}</div>
+                    </div>
+                  )
+                }))}
+              />
+            ) : (
+              <div style={{
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                height: 280,
+                color: '#999'
+              }}>
+                <Text type="secondary">暂无活动记录</Text>
+              </div>
+            )}
           </Card>
         </Col>
       </Row>
@@ -343,11 +381,11 @@ const Dashboard = () => {
           <Card title="CPU 使用率" size="small" bordered={false}>
             <Progress
               type="dashboard"
-              percent={45}
+              percent={Math.round(resources.cpu_usage || 0)}
               strokeColor="#1668dc"
             />
             <Text type="secondary" style={{ display: 'block', textAlign: 'center', marginTop: 8 }}>
-              当前负载：中等
+              当前负载：{resources.cpu_usage > 70 ? '较高' : resources.cpu_usage > 40 ? '中等' : '良好'}
             </Text>
           </Card>
         </Col>
@@ -356,11 +394,11 @@ const Dashboard = () => {
           <Card title="内存使用率" size="small" bordered={false}>
             <Progress
               type="dashboard"
-              percent={62}
+              percent={Math.round(resources.memory_usage || 0)}
               strokeColor="#52c41a"
             />
             <Text type="secondary" style={{ display: 'block', textAlign: 'center', marginTop: 8 }}>
-              当前负载：正常
+              当前负载：{resources.memory_usage > 80 ? '较高' : resources.memory_usage > 50 ? '正常' : '良好'}
             </Text>
           </Card>
         </Col>
@@ -369,11 +407,11 @@ const Dashboard = () => {
           <Card title="存储使用率" size="small" bordered={false}>
             <Progress
               type="dashboard"
-              percent={38}
+              percent={Math.round(resources.disk_usage || 0)}
               strokeColor="#faad14"
             />
             <Text type="secondary" style={{ display: 'block', textAlign: 'center', marginTop: 8 }}>
-              当前负载：良好
+              当前负载：{resources.disk_usage > 85 ? '需注意' : resources.disk_usage > 60 ? '正常' : '良好'}
             </Text>
           </Card>
         </Col>

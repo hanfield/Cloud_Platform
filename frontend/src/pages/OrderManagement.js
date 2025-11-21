@@ -28,15 +28,28 @@ const OrderManagement = ({ tenantId }) => {
                 }
             });
 
-            if (!response.ok) {
-                throw new Error('获取订单数据失败');
+            if (response.ok) {
+                const result = await response.json();
+                // 确保data是数组
+                if (Array.isArray(result)) {
+                    setData(result);
+                } else if (result && Array.isArray(result.results)) {
+                    // 如果是分页数据
+                    setData(result.results);
+                } else {
+                    console.error('订单数据格式错误:', result);
+                    message.error('获取订单数据失败: 数据格式不正确');
+                    setData([]);
+                }
+            } else {
+                message.error('获取订单数据失败');
+                setData([]);
             }
 
-            const result = await response.json();
-            setData(result.results || result);
-
         } catch (error) {
+            console.error('获取订单失败:', error);
             message.error('获取订单数据失败: ' + error.message);
+            setData([]);
         } finally {
             setLoading(false);
         }

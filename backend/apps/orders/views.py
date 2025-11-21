@@ -8,6 +8,7 @@ class OrderViewSet(viewsets.ModelViewSet):
     queryset = Order.objects.all()
     serializer_class = OrderSerializer
     permission_classes = [permissions.IsAuthenticated]
+    pagination_class = None  # 禁用分页，直接返回数组
 
     def get_queryset(self):
         # Filter orders by the current user's tenant if applicable

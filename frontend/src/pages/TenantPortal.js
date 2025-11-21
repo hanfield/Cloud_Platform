@@ -49,7 +49,7 @@ const TenantPortal = () => {
   // 自动刷新功能 - 每5秒刷新一次
   useEffect(() => {
     let refreshInterval;
-    if (autoRefresh && activeTab === 'orders') {
+    if (autoRefresh && activeTab === 'systems') {  // 只在systems标签页刷新
       refreshInterval = setInterval(() => {
         fetchAllData();
         setLastUpdate(new Date());
@@ -63,7 +63,7 @@ const TenantPortal = () => {
     };
   }, [autoRefresh, activeTab]);
 
-  const fetchAllData = async () => {
+  const fetchAllData = useCallback(async () => {
     setLoading(true);
     try {
       const profileRes = await tenantPortalService.getTenantProfile();
@@ -91,7 +91,7 @@ const TenantPortal = () => {
     } finally {
       setLoading(false);
     }
-  };
+  }, []);
 
   const handleControlResource = async (resourceId, resourceType, action) => {
     try {
