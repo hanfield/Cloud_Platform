@@ -16,7 +16,8 @@ from .tenant_portal_views import (
     available_products,
     subscribe_product,
     create_virtual_machine,
-    get_virtual_machine_detail
+    get_virtual_machine_detail,
+    delete_virtual_machine
 )
 
 router = DefaultRouter()
@@ -45,4 +46,5 @@ urlpatterns = [
     path('portal/subscribe-product/', subscribe_product, name='tenant-portal-subscribe-product'),
     path('portal/create-vm/', create_virtual_machine, name='tenant-portal-create-vm'),
     path('portal/vm/<uuid:vm_id>/', get_virtual_machine_detail, name='tenant-portal-vm-detail'),
+    path('portal/vm/<uuid:vm_id>/delete/', delete_virtual_machine, name='tenant-portal-delete-vm'),
 ]

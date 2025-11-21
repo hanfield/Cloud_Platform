@@ -46,10 +46,11 @@ class InformationSystemCreateSerializer(serializers.ModelSerializer):
     class Meta:
         model = InformationSystem
         fields = [
-            'name', 'code', 'description', 'system_type', 'operation_mode', 'status',
+            'id', 'name', 'code', 'description', 'system_type', 'operation_mode', 'status',
             'tenant', 'service_content', 'product_content',
             'total_cpu', 'total_memory', 'total_storage'
         ]
+        read_only_fields = ['id']
 
     def validate(self, attrs):
         """验证数据"""

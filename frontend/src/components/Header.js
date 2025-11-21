@@ -19,6 +19,45 @@ const { Header } = Layout;
 const AppHeader = ({ collapsed, onToggle }) => {
   const navigate = useNavigate();
   const [user, setUser] = useState({ username: 'Admin', user_type: 'admin' });
+  const [systemName, setSystemName] = useState('云平台管理系统');
+
+  // 加载系统名称
+  useEffect(() => {
+    fetchSystemName();
+  }, []);
+
+  // 监听系统配置更新
+  useEffect(() => {
+    const handleConfigUpdate = (event) => {
+      if (event.detail && event.detail.systemName) {
+        setSystemName(event.detail.systemName);
+      }
+    };
+
+    window.addEventListener('systemConfigUpdated', handleConfigUpdate);
+    return () => {
+      window.removeEventListener('systemConfigUpdated', handleConfigUpdate);
+    };
+  }, []);
+
+  const fetchSystemName = async () => {
+    try {
+      const response = await fetch('/api/system/settings/category/?name=system', {
+        headers: {
+          'Authorization': `Bearer ${localStorage.getItem('access_token')}`
+        }
+      });
+
+      if (response.ok) {
+        const data = await response.json();
+        if (data.settings && data.settings.systemName) {
+          setSystemName(data.settings.systemName);
+        }
+      }
+    } catch (error) {
+      console.error('Failed to load system name:', error);
+    }
+  };
 
   // 监听localStorage变化，更新用户信息
   useEffect(() => {
@@ -98,39 +137,72 @@ const AppHeader = ({ collapsed, onToggle }) => {
   };
 
   return (
-    <Header className="app-header">
-      <div className="header-content">
-        <div style={{ display: 'flex', alignItems: 'center' }}>
-          <Button
-            type="text"
-            icon={collapsed ? <MenuUnfoldOutlined /> : <MenuFoldOutlined />}
-            onClick={onToggle}
-            style={{
-              fontSize: '16px',
-              width: 48,
-              height: 48,
-              color: '#fff',
-              marginRight: 16
-            }}
-          />
-          <div
-            className="header-logo"
-            onClick={handleLogoClick}
-            style={{ cursor: 'pointer' }}
-          >
-            <CloudOutlined className="header-logo-icon" />
-            <span>云平台管理系统</span>
-          </div>
+    <Header
+      className="app-header glass-effect"
+      style={{
+        background: 'rgba(255, 255, 255, 0.7)',
+        backdropFilter: 'blur(12px)',
+        WebkitBackdropFilter: 'blur(12px)',
+        padding: '0 24px',
+        boxShadow: '0 8px 32px rgba(0,0,0,0.12)',
+        position: 'fixed',
+        top: 16,
+        left: 16,
+        right: 16,
+        zIndex: 100,
+        display: 'flex',
+        alignItems: 'center',
+        justifyContent: 'space-between',
+        height: 64,
+        borderRadius: 16,
+        border: '1px solid rgba(255, 255, 255, 0.3)'
+      }}
+    >
+      <div className="header-left" style={{ display: 'flex', alignItems: 'center' }}>
+        <Button
+          type="text"
+          icon={collapsed ? <MenuUnfoldOutlined /> : <MenuFoldOutlined />}
+          onClick={onToggle}
+          style={{
+            fontSize: '16px',
+            width: 32,
+            height: 32,
+            marginRight: 16
+          }}
+        />
+        <div
+          className="header-logo"
+          onClick={handleLogoClick}
+          style={{
+            cursor: 'pointer',
+            display: 'flex',
+            alignItems: 'center',
+            fontSize: '18px',
+            fontWeight: 600,
+            color: '#1668dc'
+          }}
+        >
+          <CloudOutlined style={{ fontSize: '24px', marginRight: 8 }} />
+          <span>{systemName}</span>
         </div>
+      </div>
 
-        <div className="header-actions">
+      <div className="header-right">
+        <Space size="middle">
           <Dropdown menu={{ items: getUserMenuItems() }} placement="bottomRight">
-            <div className="header-user">
-              <Avatar icon={<UserOutlined />} style={{ marginRight: 8 }} />
-              <span>{user.username}</span>
+            <div className="header-user" style={{ cursor: 'pointer', display: 'flex', alignItems: 'center' }}>
+              <Avatar
+                icon={<UserOutlined />}
+                style={{
+                  backgroundColor: '#e6f4ff',
+                  color: '#1668dc',
+                  marginRight: 8
+                }}
+              />
+              <span style={{ fontWeight: 500 }}>{user.username}</span>
             </div>
           </Dropdown>
-        </div>
+        </Space>
       </div>
     </Header>
   );

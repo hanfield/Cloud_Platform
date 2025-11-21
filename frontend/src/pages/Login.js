@@ -52,24 +52,39 @@ const Login = () => {
 
   return (
     <div style={{
-      height: '100vh',
-      background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
+      minHeight: '100vh',
+      background: 'linear-gradient(135deg, #f0f2f5 0%, #e6f4ff 100%)',
+      backgroundImage: 'url("https://gw.alipayobjects.com/zos/rmsportal/TVYTbAXWheQpRcWDaDMu.svg")',
+      backgroundRepeat: 'no-repeat',
+      backgroundPosition: 'center 110px',
+      backgroundSize: '100%',
       display: 'flex',
       justifyContent: 'center',
-      alignItems: 'center'
+      alignItems: 'center',
+      padding: '20px'
     }}>
       <Card
-        title={
-          <Space>
-            <CloudOutlined style={{ fontSize: '24px', color: '#1890ff' }} />
-            <span>云平台管理系统</span>
-          </Space>
-        }
+        bordered={false}
         style={{
-          width: 400,
-          boxShadow: '0 8px 32px rgba(0, 0, 0, 0.1)'
+          width: 420,
+          maxWidth: '100%',
+          boxShadow: '0 8px 24px rgba(0, 0, 0, 0.08)',
+          borderRadius: 12,
+          background: 'rgba(255, 255, 255, 0.95)',
+          backdropFilter: 'blur(10px)'
         }}
+        className="animate-float"
       >
+        <div style={{ textAlign: 'center', marginBottom: 32 }}>
+          <CloudOutlined style={{ fontSize: '48px', color: '#1668dc', marginBottom: 16 }} />
+          <div style={{ fontSize: '24px', fontWeight: 600, color: '#1f1f1f', marginBottom: 8 }}>
+            云平台管理系统
+          </div>
+          <div style={{ fontSize: '14px', color: '#8c8c8c' }}>
+            Enterprise Cloud Management Platform
+          </div>
+        </div>
+
         <Tabs activeKey={userType} onChange={setUserType} centered>
           <TabPane
             tab={
@@ -84,7 +99,7 @@ const Login = () => {
             tab={
               <span>
                 <TeamOutlined />
-                用户登录
+                租户登录
               </span>
             }
             key="tenant"
@@ -127,14 +142,22 @@ const Login = () => {
               type="primary"
               htmlType="submit"
               loading={loading}
-              style={{ width: '100%' }}
+              block
             >
               登录
             </Button>
           </Form.Item>
         </Form>
 
-        <div style={{ textAlign: 'center', color: '#666', fontSize: '12px', marginBottom: '10px' }}>
+        <div style={{
+          textAlign: 'center',
+          padding: '12px',
+          background: '#f5f5f5',
+          borderRadius: 6,
+          marginBottom: 16,
+          fontSize: '12px',
+          color: '#595959'
+        }}>
           {userType === 'admin' ? '管理员账号: admin / admin123' : '租户账号: tenant / tenant123'}
         </div>
 
@@ -142,7 +165,7 @@ const Login = () => {
           <Button type="link" onClick={() => navigate('/forgot-password')}>
             忘记密码？
           </Button>
-          <span style={{ color: '#d9d9d9' }}>|</span>
+          <span style={{ color: '#d9d9d9', margin: '0 8px' }}>|</span>
           <Button type="link" onClick={() => navigate('/register')}>
             立即注册
           </Button>

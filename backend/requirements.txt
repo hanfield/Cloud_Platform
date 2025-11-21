@@ -1,13 +1,41 @@
+# Core Django Framework
 Django==4.2.0
 djangorestframework==3.14.0
 djangorestframework-simplejwt==5.2.2
+
+# CORS Support
 django-cors-headers==4.0.0
-openstacksdk==1.5.0
+
+# Database
 psycopg2-binary==2.9.6
+
+# OpenStack Integration
+openstacksdk==1.5.0
+
+# Environment Configuration
 python-dotenv==1.0.0
-django-filter==23.2
-celery==5.2.0
-redis==4.5.0
-Pillow==9.5.0
 python-decouple==3.8
+
+# Filtering & Pagination
+django-filter==23.2
+
+# Celery Task Queue
+celery==5.3.4
+redis==5.0.1
+
+# Image Processing
+Pillow==9.5.0
+
+# Date & Time Utilities
 python-dateutil==2.9.0.post0
+
+# Additional Utilities
+pytz==2023.3
+requests==2.31.0
+
+# Development & Testing (Optional)
+# django-debug-toolbar==4.0.0
+# pytest==7.3.1
+# pytest-django==4.5.2
+# factory-boy==3.2.1
+# faker==18.9.0

@@ -13,12 +13,19 @@ class TenantSerializer(serializers.ModelSerializer):
     created_by_name = serializers.CharField(source='created_by.username', read_only=True)
     discount_rate = serializers.ReadOnlyField()
     is_active = serializers.ReadOnlyField()
+    status_display = serializers.CharField(source='get_status_display', read_only=True)
+    level_display = serializers.CharField(source='get_level_display', read_only=True)
+    tenant_type_display = serializers.CharField(source='get_tenant_type_display', read_only=True)
+    discount_level_display = serializers.CharField(source='get_discount_level_display', read_only=True)
 
     class Meta:
         model = Tenant
         fields = [
             'id', 'name', 'code', 'description',
-            'level', 'discount_level', 'tenant_type', 'status',
+            'level', 'level_display',
+            'discount_level', 'discount_level_display',
+            'tenant_type', 'tenant_type_display',
+            'status', 'status_display',
             'contact_person', 'contact_phone', 'contact_email', 'address',
             'start_time', 'end_time', 'created_at', 'updated_at',
             'created_by', 'created_by_name',
@@ -228,15 +235,18 @@ class StakeholderSerializer(serializers.ModelSerializer):
         return value
 
 
-class StakeholderCreateSerializer(serializers.ModelSerializer):
+class StakeholderCreateSerializer(serializers.Serializer):
     """干系人创建序列化器"""
 
-    class Meta:
-        model = Stakeholder
-        fields = [
-            'tenant', 'stakeholder_type', 'name', 'phone', 'email',
-            'position', 'department', 'is_primary', 'notes'
-        ]
+    tenant = serializers.PrimaryKeyRelatedField(queryset=Tenant.objects.all())
+    stakeholder_type = serializers.ChoiceField(choices=Stakeholder.StakeholderType.choices)
+    name = serializers.CharField(max_length=100)
+    phone = serializers.CharField(max_length=20, required=False, allow_blank=True)
+    email = serializers.EmailField(required=False, allow_blank=True)
+    position = serializers.CharField(max_length=100, required=False, allow_blank=True)
+    department = serializers.CharField(max_length=100, required=False, allow_blank=True)
+    is_primary = serializers.BooleanField(default=False)
+    notes = serializers.CharField(required=False, allow_blank=True)
 
     def validate_name(self, value):
         """验证姓名"""
@@ -256,16 +266,30 @@ class StakeholderCreateSerializer(serializers.ModelSerializer):
             raise serializers.ValidationError("邮箱格式不正确")
         return value
 
+    def create(self, validated_data):
+        """创建干系人，处理加密字段"""
+        phone = validated_data.pop('phone', '')
+        email = validated_data.pop('email', '')
 
-class StakeholderUpdateSerializer(serializers.ModelSerializer):
+        stakeholder = Stakeholder(**validated_data)
+        stakeholder.phone = phone  # 使用property setter进行加密
+        stakeholder.email = email  # 使用property setter进行加密
+        stakeholder.save()
+
+        return stakeholder
+
+
+class StakeholderUpdateSerializer(serializers.Serializer):
     """干系人更新序列化器"""
 
-    class Meta:
-        model = Stakeholder
-        fields = [
-            'stakeholder_type', 'name', 'phone', 'email',
-            'position', 'department', 'is_primary', 'notes'
-        ]
+    stakeholder_type = serializers.ChoiceField(choices=Stakeholder.StakeholderType.choices, required=False)
+    name = serializers.CharField(max_length=100, required=False)
+    phone = serializers.CharField(max_length=20, required=False, allow_blank=True)
+    email = serializers.EmailField(required=False, allow_blank=True)
+    position = serializers.CharField(max_length=100, required=False, allow_blank=True)
+    department = serializers.CharField(max_length=100, required=False, allow_blank=True)
+    is_primary = serializers.BooleanField(required=False)
+    notes = serializers.CharField(required=False, allow_blank=True)
 
     def validate_name(self, value):
         """验证姓名"""
@@ -284,6 +308,21 @@ class StakeholderUpdateSerializer(serializers.ModelSerializer):
         if value and '@' not in value:
             raise serializers.ValidationError("邮箱格式不正确")
         return value
+
+    def update(self, instance, validated_data):
+        """更新干系人，处理加密字段"""
+        # 处理加密字段
+        if 'phone' in validated_data:
+            instance.phone = validated_data.pop('phone')
+        if 'email' in validated_data:
+            instance.email = validated_data.pop('email')
+
+        # 更新其他字段
+        for attr, value in validated_data.items():
+            setattr(instance, attr, value)
+
+        instance.save()
+        return instance
 
 
 class DataCenterSerializer(serializers.ModelSerializer):

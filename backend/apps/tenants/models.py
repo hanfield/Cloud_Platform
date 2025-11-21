@@ -269,7 +269,11 @@ class Stakeholder(models.Model):
         """获取加密密钥"""
         if not hasattr(settings, 'ENCRYPTION_KEY'):
             raise ImproperlyConfigured('ENCRYPTION_KEY must be set in settings')
-        return settings.ENCRYPTION_KEY
+        key = settings.ENCRYPTION_KEY
+        # Fernet 需要 bytes 类型的密钥
+        if isinstance(key, str):
+            return key.encode('utf-8')
+        return key
 
     def _encrypt_field(self, value):
         """加密字段"""

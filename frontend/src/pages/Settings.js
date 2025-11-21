@@ -2,7 +2,7 @@
  * 系统设置页面
  */
 
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { Card, Form, Input, Button, Switch, message, Tabs, Select, InputNumber, Divider } from 'antd';
 import {
   SettingOutlined,
@@ -18,6 +18,7 @@ const { TabPane } = Tabs;
 const { TextArea } = Input;
 const { Option } = Select;
 
+
 const Settings = () => {
   const [loading, setLoading] = useState(false);
   const [systemForm] = Form.useForm();
@@ -25,8 +26,8 @@ const Settings = () => {
   const [openstackForm] = Form.useForm();
   const [notificationForm] = Form.useForm();
 
-  // 初始化表单数据（从localStorage或API获取）
-  const [systemSettings] = useState({
+  // 使用useState而不是固定值
+  const [systemSettings, setSystemSettings] = useState({
     systemName: '云平台管理系统',
     systemVersion: '1.0.0',
     systemDescription: '基于Django和React的云平台管理系统',
@@ -36,7 +37,7 @@ const Settings = () => {
     maxLoginAttempts: 5
   });
 
-  const [databaseSettings] = useState({
+  const [databaseSettings, setDatabaseSettings] = useState({
     dbType: 'postgresql',
     dbHost: 'localhost',
     dbPort: 5432,
@@ -46,7 +47,7 @@ const Settings = () => {
     connectionTimeout: 30
   });
 
-  const [openstackSettings] = useState({
+  const [openstackSettings, setOpenstackSettings] = useState({
     authUrl: 'http://localhost:5000/v3',
     username: 'admin',
     projectName: 'admin',
@@ -57,7 +58,7 @@ const Settings = () => {
     syncInterval: 60
   });
 
-  const [notificationSettings] = useState({
+  const [notificationSettings, setNotificationSettings] = useState({
     enableEmail: true,
     emailFrom: 'noreply@cloudplatform.com',
     smtpHost: 'smtp.example.com',
@@ -68,17 +69,73 @@ const Settings = () => {
     notifyOnContractExpire: true
   });
 
+  // 从API加载所有设置
+  useEffect(() => {
+    fetchAllSettings();
+  }, []);
+
+  const fetchAllSettings = async () => {
+    try {
+      const response = await fetch('/api/system/settings/', {
+        headers: {
+          'Authorization': `Bearer ${localStorage.getItem('access_token')}`
+        }
+      });
+
+      if (response.ok) {
+        const data = await response.json();
+
+        // 更新各个分类的设置
+        if (data.system && Object.keys(data.system).length > 0) {
+          setSystemSettings(prev => ({ ...prev, ...data.system }));
+          systemForm.setFieldsValue(data.system);
+        }
+        if (data.database && Object.keys(data.database).length > 0) {
+          setDatabaseSettings(prev => ({ ...prev, ...data.database }));
+          databaseForm.setFieldsValue(data.database);
+        }
+        if (data.openstack && Object.keys(data.openstack).length > 0) {
+          setOpenstackSettings(prev => ({ ...prev, ...data.openstack }));
+          openstackForm.setFieldsValue(data.openstack);
+        }
+        if (data.notification && Object.keys(data.notification).length > 0) {
+          setNotificationSettings(prev => ({ ...prev, ...data.notification }));
+          notificationForm.setFieldsValue(data.notification);
+        }
+      }
+    } catch (error) {
+      console.error('Failed to load settings:', error);
+    }
+  };
+
   // 保存系统设置
   const handleSaveSystemSettings = async (values) => {
     setLoading(true);
     try {
-      // 这里应该调用API保存设置
-      console.log('System settings:', values);
+      const response = await fetch('/api/system/settings/', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${localStorage.getItem('access_token')}`
+        },
+        body: JSON.stringify({ category: 'system', settings: values })
+      });
 
-      // 模拟保存
-      await new Promise(resolve => setTimeout(resolve, 1000));
+      if (!response.ok) {
+        const errorData = await response.json().catch(() => ({}));
+        throw new Error(errorData.error || '保存失败');
+      }
 
       message.success('系统设置保存成功');
+
+      // 更新本地状态
+      setSystemSettings(prev => ({ ...prev, ...values }));
+
+      // 触发全局刷新（通过CustomEvent）
+      window.dispatchEvent(new CustomEvent('systemConfigUpdated', { detail: values }));
+
+      // 重新加载所有设置
+      fetchAllSettings();
     } catch (error) {
       message.error('保存失败: ' + error.message);
     } finally {
@@ -90,8 +147,20 @@ const Settings = () => {
   const handleSaveDatabaseSettings = async (values) => {
     setLoading(true);
     try {
-      console.log('Database settings:', values);
-      await new Promise(resolve => setTimeout(resolve, 1000));
+      const response = await fetch('/api/system/settings/', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${localStorage.getItem('access_token')}`
+        },
+        body: JSON.stringify({ category: 'database', settings: values })
+      });
+
+      if (!response.ok) {
+        const errorData = await response.json().catch(() => ({}));
+        throw new Error(errorData.error || '保存失败');
+      }
+
       message.success('数据库设置保存成功');
     } catch (error) {
       message.error('保存失败: ' + error.message);
@@ -104,9 +173,24 @@ const Settings = () => {
   const handleSaveOpenstackSettings = async (values) => {
     setLoading(true);
     try {
-      console.log('OpenStack settings:', values);
-      await new Promise(resolve => setTimeout(resolve, 1000));
+      const response = await fetch('/api/system/settings/', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${localStorage.getItem('access_token')}`
+        },
+        body: JSON.stringify({ category: 'openstack', settings: values })
+      });
+
+      if (!response.ok) {
+        const errorData = await response.json().catch(() => ({}));
+        throw new Error(errorData.error || '保存失败');
+      }
+
       message.success('OpenStack设置保存成功');
+
+      // 刷新页面使OpenStack配置生效（可选）
+      // window.location.reload();
     } catch (error) {
       message.error('保存失败: ' + error.message);
     } finally {
@@ -118,8 +202,20 @@ const Settings = () => {
   const handleSaveNotificationSettings = async (values) => {
     setLoading(true);
     try {
-      console.log('Notification settings:', values);
-      await new Promise(resolve => setTimeout(resolve, 1000));
+      const response = await fetch('/api/system/settings/', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${localStorage.getItem('access_token')}`
+        },
+        body: JSON.stringify({ category: 'notification', settings: values })
+      });
+
+      if (!response.ok) {
+        const errorData = await response.json().catch(() => ({}));
+        throw new Error(errorData.error || '保存失败');
+      }
+
       message.success('通知设置保存成功');
     } catch (error) {
       message.error('保存失败: ' + error.message);

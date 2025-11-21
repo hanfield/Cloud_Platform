@@ -32,10 +32,10 @@ app.conf.beat_schedule = {
         'schedule': crontab(minute=0),  # 每小时的0分执行
         'options': {'queue': 'monitoring'}
     },
-    # 虚拟机状态同步 - 每5分钟执行一次
+    # 虚拟机状态同步 - 每5秒执行一次
     'sync-vm-status': {
         'task': 'apps.information_systems.tasks.sync_vm_status',
-        'schedule': crontab(minute='*/5'),  # 每5分钟执行
+        'schedule': 5.0,  # 每5秒执行
         'options': {'queue': 'monitoring'}
     },
 }

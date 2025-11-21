@@ -340,6 +340,93 @@ class InformationSystemViewSet(viewsets.ModelViewSet):
             'total_storage': total_storage
         })
 
+    @action(detail=False, methods=['get'])
+    def virtual_machines_overview(self, request):
+        """获取所有虚拟机概览统计"""
+        from django.db.models import Count, Q
+
+        # 获取所有虚拟机
+        all_vms = VirtualMachine.objects.select_related(
+            'information_system',
+            'information_system__tenant'
+        ).all()
+
+        # 统计各种状态的虚拟机
+        status_stats = {
+            'running': all_vms.filter(status='running').count(),
+            'stopped': all_vms.filter(status='stopped').count(),
+            'paused': all_vms.filter(status='paused').count(),
+            'error': all_vms.filter(status='error').count(),
+        }
+
+        # 按数据中心类型统计
+        datacenter_stats = {}
+        for dc_type, dc_name in VirtualMachine.DataCenterType.choices:
+            datacenter_stats[dc_name] = all_vms.filter(data_center_type=dc_type).count()
+
+        # 资源总量统计
+        total_cpu = sum(vm.cpu_cores for vm in all_vms)
+        total_memory = sum(vm.memory_gb for vm in all_vms)
+        total_storage = sum(vm.disk_gb for vm in all_vms)
+
+        # 按租户统计
+        tenant_stats = []
+        from ..tenants.models import Tenant
+        for tenant in Tenant.objects.all():
+            tenant_vms = all_vms.filter(information_system__tenant=tenant)
+            if tenant_vms.exists():
+                tenant_stats.append({
+                    'tenant_id': str(tenant.id),
+                    'tenant_name': tenant.name,
+                    'total_vms': tenant_vms.count(),
+                    'running_vms': tenant_vms.filter(status='running').count(),
+                    'total_cpu': sum(vm.cpu_cores for vm in tenant_vms),
+                    'total_memory': sum(vm.memory_gb for vm in tenant_vms),
+                    'total_storage': sum(vm.disk_gb for vm in tenant_vms)
+                })
+
+        # 虚拟机列表（最近创建的50台）
+        recent_vms = all_vms.order_by('-created_at')[:50]
+        vms_list = []
+        for vm in recent_vms:
+            vms_list.append({
+                'id': str(vm.id),
+                'name': vm.name,
+                'tenant_name': vm.information_system.tenant.name,
+                'system_name': vm.information_system.name,
+                'ip_address': vm.ip_address or '未分配',
+                'mac_address': vm.mac_address or '未分配',
+                'cpu_cores': vm.cpu_cores,
+                'memory_gb': vm.memory_gb,
+                'disk_gb': vm.disk_gb,
+                'status': vm.status,
+                'status_display': vm.get_status_display(),
+                'data_center_type': vm.data_center_type,
+                'data_center_type_display': vm.get_data_center_type_display(),
+                'availability_zone': vm.availability_zone or '-',
+                'region': vm.region or '-',
+                'os_type': vm.os_type or '未知',
+                'os_version': vm.os_version or '-',
+                'openstack_id': vm.openstack_id or '-',
+                'last_start_time': vm.last_start_time.strftime('%Y-%m-%d %H:%M:%S') if vm.last_start_time else None,
+                'last_stop_time': vm.last_stop_time.strftime('%Y-%m-%d %H:%M:%S') if vm.last_stop_time else None,
+                'created_at': vm.created_at.strftime('%Y-%m-%d %H:%M:%S'),
+                'created_by': vm.created_by.username if vm.created_by else '系统'
+            })
+
+        return Response({
+            'total_vms': all_vms.count(),
+            'status_stats': status_stats,
+            'datacenter_stats': datacenter_stats,
+            'resource_totals': {
+                'cpu_cores': total_cpu,
+                'memory_gb': total_memory,
+                'storage_gb': total_storage
+            },
+            'tenant_stats': tenant_stats,
+            'virtual_machines': vms_list
+        })
+
 
 class SystemResourceViewSet(viewsets.ModelViewSet):
     """系统资源视图集"""

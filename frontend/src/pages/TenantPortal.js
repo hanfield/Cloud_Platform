@@ -1,11 +1,11 @@
-import React, { useState, useEffect } from 'react';
-import { Card, Row, Col, Tabs, Table, Button, Space, Tag, Descriptions, message, Modal, Form, Input, Select, Statistic, Divider, InputNumber, TimePicker } from 'antd';
-import { UserOutlined, DesktopOutlined, ShoppingOutlined, PlusOutlined, PoweroffOutlined, PlayCircleOutlined, StopOutlined, TeamOutlined, EyeOutlined } from '@ant-design/icons';
+import React, { useState, useEffect, useCallback } from 'react';
+import { Card, Row, Col, Table, Button, Space, Tag, Descriptions, message, Modal, Form, Input, Select, Statistic, Divider, InputNumber, TimePicker, Progress } from 'antd';
+import { UserOutlined, DesktopOutlined, ShoppingOutlined, PlusOutlined, PoweroffOutlined, PlayCircleOutlined, StopOutlined, TeamOutlined, EyeOutlined, SyncOutlined, ReloadOutlined } from '@ant-design/icons';
 import { useLocation, useNavigate } from 'react-router-dom';
+import { PieChart, Pie, Cell, Tooltip, Legend, ResponsiveContainer } from 'recharts';
 import tenantPortalService from '../services/tenantPortalService';
 import moment from 'moment';
 
-const { TabPane } = Tabs;
 const { Option } = Select;
 
 const TenantPortal = () => {
@@ -35,6 +35,8 @@ const TenantPortal = () => {
   };
 
   const [activeTab, setActiveTab] = useState(getActiveTabFromPath());
+  const [autoRefresh, setAutoRefresh] = useState(true);
+  const [lastUpdate, setLastUpdate] = useState(new Date());
 
   useEffect(() => {
     setActiveTab(getActiveTabFromPath());
@@ -44,6 +46,23 @@ const TenantPortal = () => {
     fetchAllData();
   }, []);
 
+  // 自动刷新功能 - 每5秒刷新一次
+  useEffect(() => {
+    let refreshInterval;
+    if (autoRefresh && activeTab === 'orders') {
+      refreshInterval = setInterval(() => {
+        fetchAllData();
+        setLastUpdate(new Date());
+      }, 5000); // 5秒刷新一次
+    }
+
+    return () => {
+      if (refreshInterval) {
+        clearInterval(refreshInterval);
+      }
+    };
+  }, [autoRefresh, activeTab]);
+
   const fetchAllData = async () => {
     setLoading(true);
     try {
@@ -52,7 +71,16 @@ const TenantPortal = () => {
       const systemsRes = await tenantPortalService.getSystemsOverview();
       setSystems(systemsRes.systems || []);
       const ordersRes = await tenantPortalService.getTenantOrders();
-      setOrders(ordersRes.orders || []);
+      // Deduplicate orders by system_id to prevent duplicate display
+      const uniqueOrders = [];
+      const seenSystemIds = new Set();
+      (ordersRes.orders || []).forEach(order => {
+        if (!seenSystemIds.has(order.system_id)) {
+          seenSystemIds.add(order.system_id);
+          uniqueOrders.push(order);
+        }
+      });
+      setOrders(uniqueOrders);
       const subsRes = await tenantPortalService.getTenantSubscriptions();
       setSubscriptions(subsRes);
       const productsRes = await tenantPortalService.getAvailableProducts();
@@ -129,6 +157,118 @@ const TenantPortal = () => {
     setVmModalVisible(true);
   };
 
+  // 计算虚拟机状态统计
+  const getVMStatusStats = () => {
+    const allVMs = [];
+    orders.forEach(order => {
+      if (order.vm_resources) {
+        allVMs.push(...order.vm_resources);
+      }
+    });
+
+    const stats = allVMs.reduce((acc, vm) => {
+      const status = vm.status || 'unknown';
+      acc[status] = (acc[status] || 0) + 1;
+      return acc;
+    }, {});
+
+    // 状态映射和颜色
+    const statusConfig = {
+      'running': { label: '运行中', color: '#52c41a' },
+      'stopped': { label: '已停止', color: '#ff4d4f' },
+      'paused': { label: '已暂停', color: '#faad14' },
+      'error': { label: '异常', color: '#f5222d' },
+      'unknown': { label: '未知', color: '#d9d9d9' }
+    };
+
+    return Object.keys(stats).map(status => ({
+      name: statusConfig[status]?.label || status,
+      value: stats[status],
+      status: status,
+      color: statusConfig[status]?.color || '#d9d9d9'
+    }));
+  };
+
+  // 虚拟机状态饼图组件
+  const VMStatusChart = () => {
+    const data = getVMStatusStats();
+    const totalVMs = data.reduce((sum, item) => sum + item.value, 0);
+
+    if (totalVMs === 0) {
+      return (
+        <div style={{ textAlign: 'center', padding: '40px', color: '#999' }}>
+          <DesktopOutlined style={{ fontSize: 48, marginBottom: 16 }} />
+          <p>暂无虚拟机数据</p>
+        </div>
+      );
+    }
+
+    const RADIAN = Math.PI / 180;
+    const renderCustomizedLabel = ({ cx, cy, midAngle, innerRadius, outerRadius, percent }) => {
+      const radius = innerRadius + (outerRadius - innerRadius) * 0.5;
+      const x = cx + radius * Math.cos(-midAngle * RADIAN);
+      const y = cy + radius * Math.sin(-midAngle * RADIAN);
+
+      return (
+        <text
+          x={x}
+          y={y}
+          fill="white"
+          textAnchor={x > cx ? 'start' : 'end'}
+          dominantBaseline="central"
+          fontWeight="bold"
+        >
+          {`${(percent * 100).toFixed(0)}%`}
+        </text>
+      );
+    };
+
+    return (
+      <div>
+        <Row gutter={16} style={{ marginBottom: 16 }}>
+          {data.map((item) => (
+            <Col span={6} key={item.status}>
+              <Card>
+                <Statistic
+                  title={item.name}
+                  value={item.value}
+                  suffix="台"
+                  valueStyle={{ color: item.color }}
+                />
+              </Card>
+            </Col>
+          ))}
+          <Col span={6}>
+            <Card>
+              <Statistic title="总计" value={totalVMs} suffix="台" />
+            </Card>
+          </Col>
+        </Row>
+
+        <ResponsiveContainer width="100%" height={300}>
+          <PieChart>
+            <Pie
+              data={data}
+              cx="50%"
+              cy="50%"
+              labelLine={false}
+              label={renderCustomizedLabel}
+              outerRadius={100}
+              fill="#8884d8"
+              dataKey="value"
+            >
+              {data.map((entry, index) => (
+                <Cell key={`cell-${index}`} fill={entry.color} />
+              ))}
+            </Pie>
+            <Tooltip />
+            <Legend />
+          </PieChart>
+        </ResponsiveContainer>
+      </div>
+    );
+  };
+
   // 租户信息标签页
   const renderTenantInfo = () => {
     if (!profile) return null;
@@ -189,25 +329,25 @@ const TenantPortal = () => {
   const renderOverview = () => {
     return (
       <div>
-        <Row gutter={[16, 16]}>
-          <Col span={6}>
-            <Card>
-              <Statistic title="信息系统" value={systems.length} suffix="个" />
+        <Row gutter={[24, 24]}>
+          <Col xs={24} sm={12} lg={6}>
+            <Card hoverable className="dashboard-card">
+              <Statistic title="信息系统" value={systems.length} suffix="个" valueStyle={{ color: '#1890ff' }} />
             </Card>
           </Col>
-          <Col span={6}>
-            <Card>
-              <Statistic title="产品订阅" value={subscriptions?.total_products || 0} suffix="个" />
+          <Col xs={24} sm={12} lg={6}>
+            <Card hoverable className="dashboard-card">
+              <Statistic title="产品订阅" value={subscriptions?.total_products || 0} suffix="个" valueStyle={{ color: '#52c41a' }} />
             </Card>
           </Col>
-          <Col span={6}>
-            <Card>
-              <Statistic title="服务订阅" value={subscriptions?.total_services || 0} suffix="个" />
+          <Col xs={24} sm={12} lg={6}>
+            <Card hoverable className="dashboard-card">
+              <Statistic title="服务订阅" value={subscriptions?.total_services || 0} suffix="个" valueStyle={{ color: '#faad14' }} />
             </Card>
           </Col>
-          <Col span={6}>
-            <Card>
-              <Statistic title="运行中系统" value={systems.filter(s => s.status === 'running').length} suffix="个" />
+          <Col xs={24} sm={12} lg={6}>
+            <Card hoverable className="dashboard-card">
+              <Statistic title="运行中系统" value={systems.filter(s => s.status === 'running').length} suffix="个" valueStyle={{ color: '#722ed1' }} />
             </Card>
           </Col>
         </Row>
@@ -236,9 +376,11 @@ const TenantPortal = () => {
               { title: '系统名称', dataIndex: 'name', key: 'name' },
               { title: '系统编码', dataIndex: 'code', key: 'code' },
               { title: '运行模式', dataIndex: 'operation_mode_display', key: 'operation_mode' },
-              { title: '状态', dataIndex: 'status_display', key: 'status', render: (text, record) => (
-                <Tag color={record.status === 'running' ? 'green' : 'default'}>{text}</Tag>
-              )}
+              {
+                title: '状态', dataIndex: 'status_display', key: 'status', render: (text, record) => (
+                  <Tag color={record.status === 'running' ? 'green' : 'default'}>{text}</Tag>
+                )
+              }
             ]}
           />
         </Card>
@@ -292,102 +434,122 @@ const TenantPortal = () => {
     }
   ];
 
-  return (
-    <div style={{ padding: '24px' }}>
-      <Tabs activeKey={activeTab} onChange={setActiveTab}>
-        <TabPane tab={<span><DesktopOutlined />概览</span>} key="overview">
-          {renderOverview()}
-        </TabPane>
+  // 我的系统标签页
+  const renderSystems = () => {
+    return (
+      <div>
+        {/* 虚拟机状态总览和刷新控制 */}
+        <Card
+          title="虚拟机状态总览"
+          extra={
+            <Space>
+              <Tag color={autoRefresh ? 'green' : 'default'}>
+                {autoRefresh ? <SyncOutlined spin /> : <SyncOutlined />}
+                {autoRefresh ? ' 自动刷新中' : ' 已暂停'}
+              </Tag>
+              <Button
+                size="small"
+                icon={autoRefresh ? <StopOutlined /> : <PlayCircleOutlined />}
+                onClick={() => setAutoRefresh(!autoRefresh)}
+              >
+                {autoRefresh ? '暂停刷新' : '开启刷新'}
+              </Button>
+              <Button size="small" icon={<ReloadOutlined />} onClick={fetchAllData}>
+                立即刷新
+              </Button>
+              <span style={{ fontSize: '12px', color: '#999' }}>
+                最后更新: {lastUpdate.toLocaleTimeString()}
+              </span>
+            </Space>
+          }
+          style={{ marginBottom: 16 }}
+        >
+          <VMStatusChart />
+        </Card>
 
-        <TabPane tab={<span><TeamOutlined />租户信息</span>} key="info">
-          {renderTenantInfo()}
-        </TabPane>
+        <div style={{ marginBottom: 16, textAlign: 'right' }}>
+          <Button type="primary" icon={<PlusOutlined />} onClick={() => setSystemModalVisible(true)}>创建新系统</Button>
+        </div>
 
-        <TabPane tab={<span><DesktopOutlined />我的系统</span>} key="systems">
+        {/* 各系统的虚拟机列表 */}
+        {orders.map((order) => (
           <Card
-            title="信息系统列表"
-            extra={<Button type="primary" icon={<PlusOutlined />} onClick={() => setSystemModalVisible(true)}>创建系统</Button>}
+            key={order.system_id}
+            title={`${order.system_name} - 资源详情`}
+            extra={<Button type="primary" icon={<PlusOutlined />} onClick={() => openCreateVMModal(order.system_id)}>创建虚拟机</Button>}
+            style={{ marginBottom: 16 }}
           >
-            <Table
-              dataSource={systems}
-              rowKey="id"
-              columns={[
-                { title: '系统名称', dataIndex: 'name', key: 'name' },
-                { title: '系统编码', dataIndex: 'code', key: 'code' },
-                { title: '运行模式', dataIndex: 'operation_mode_display', key: 'operation_mode' },
-                { title: '描述', dataIndex: 'description', key: 'description' },
-                {
-                  title: '状态',
-                  dataIndex: 'status_display',
-                  key: 'status',
-                  render: (text, record) => (
-                    <Tag color={record.status === 'running' ? 'green' : 'default'}>{text}</Tag>
-                  )
-                }
-              ]}
-            />
+            <h4>虚拟机资源</h4>
+            <Table dataSource={order.vm_resources} rowKey="name" columns={vmColumns} pagination={false} />
+
+            <Divider />
+
+            <Row gutter={16}>
+              <Col span={12}>
+                <h4>存储资源</h4>
+                <Descriptions bordered size="small">
+                  <Descriptions.Item label="订阅容量">{order.storage.subscribed_capacity} GB</Descriptions.Item>
+                  <Descriptions.Item label="已用容量">{order.storage.used_capacity} GB</Descriptions.Item>
+                  <Descriptions.Item label="可用容量">{order.storage.available_capacity} GB</Descriptions.Item>
+                </Descriptions>
+              </Col>
+              <Col span={12}>
+                <h4>网络资源</h4>
+                <Descriptions bordered size="small">
+                  <Descriptions.Item label="线路类型">{order.network.line_type}</Descriptions.Item>
+                  <Descriptions.Item label="带宽">{order.network.bandwidth} Mbps</Descriptions.Item>
+                  <Descriptions.Item label="开始时间">{order.network.start_time}</Descriptions.Item>
+                  <Descriptions.Item label="状态"><Tag color="green">{order.network.status}</Tag></Descriptions.Item>
+                </Descriptions>
+              </Col>
+            </Row>
           </Card>
-        </TabPane>
+        ))}
 
-        <TabPane tab={<span><ShoppingOutlined />产品订阅</span>} key="products">
-          <Card title="可订阅产品">
-            <Table dataSource={products} rowKey="id" columns={productColumns} />
-          </Card>
+        {orders.length === 0 && (
+          <div style={{ textAlign: 'center', padding: '40px', color: '#999' }}>
+            <p>暂无系统资源，请先创建信息系统</p>
+          </div>
+        )}
+      </div>
+    );
+  };
 
-          <Card title="我的订阅" style={{ marginTop: 16 }}>
-            <Table
-              dataSource={subscriptions?.products || []}
-              rowKey="id"
-              columns={[
-                { title: '产品名称', dataIndex: 'product_name', key: 'product_name' },
-                { title: '产品类型', dataIndex: 'product_type', key: 'product_type' },
-                { title: '数量', dataIndex: 'quantity', key: 'quantity' },
-                { title: '单价', dataIndex: 'unit_price', key: 'unit_price', render: (price) => `¥${price}` },
-                { title: '月费用', dataIndex: 'monthly_cost', key: 'monthly_cost', render: (cost) => `¥${cost}` },
-                { title: '状态', dataIndex: 'status', key: 'status', render: (status) => <Tag color="blue">{status}</Tag> },
-                { title: '开始日期', dataIndex: 'start_date', key: 'start_date' },
-                { title: '结束日期', dataIndex: 'end_date', key: 'end_date' }
-              ]}
-            />
-          </Card>
-        </TabPane>
+  // 产品订阅标签页
+  const renderProducts = () => {
+    return (
+      <div>
+        <Card title="可订阅产品">
+          <Table dataSource={products} rowKey="id" columns={productColumns} />
+        </Card>
 
-        <TabPane tab={<span><UserOutlined />订单管理</span>} key="orders">
-          {orders.map((order) => (
-            <Card
-              key={order.system_id}
-              title={`${order.system_name} - 资源订单`}
-              extra={<Button type="primary" icon={<PlusOutlined />} onClick={() => openCreateVMModal(order.system_id)}>创建虚拟机</Button>}
-              style={{ marginBottom: 16 }}
-            >
-              <h4>虚拟机资源</h4>
-              <Table dataSource={order.vm_resources} rowKey="name" columns={vmColumns} pagination={false} />
+        <Card title="我的订阅" style={{ marginTop: 16 }}>
+          <Table
+            dataSource={subscriptions?.products || []}
+            rowKey="id"
+            columns={[
+              { title: '产品名称', dataIndex: 'product_name', key: 'product_name' },
+              { title: '产品类型', dataIndex: 'product_type', key: 'product_type' },
+              { title: '数量', dataIndex: 'quantity', key: 'quantity' },
+              { title: '单价', dataIndex: 'unit_price', key: 'unit_price', render: (price) => `¥${price}` },
+              { title: '月费用', dataIndex: 'monthly_cost', key: 'monthly_cost', render: (cost) => `¥${cost}` },
+              { title: '状态', dataIndex: 'status', key: 'status', render: (status) => <Tag color="blue">{status}</Tag> },
+              { title: '开始日期', dataIndex: 'start_date', key: 'start_date' },
+              { title: '结束日期', dataIndex: 'end_date', key: 'end_date' }
+            ]}
+          />
+        </Card>
+      </div>
+    );
+  };
 
-              <Divider />
-
-              <Row gutter={16}>
-                <Col span={12}>
-                  <h4>存储资源</h4>
-                  <Descriptions bordered size="small">
-                    <Descriptions.Item label="订阅容量">{order.storage.subscribed_capacity} GB</Descriptions.Item>
-                    <Descriptions.Item label="已用容量">{order.storage.used_capacity} GB</Descriptions.Item>
-                    <Descriptions.Item label="可用容量">{order.storage.available_capacity} GB</Descriptions.Item>
-                  </Descriptions>
-                </Col>
-                <Col span={12}>
-                  <h4>网络资源</h4>
-                  <Descriptions bordered size="small">
-                    <Descriptions.Item label="线路类型">{order.network.line_type}</Descriptions.Item>
-                    <Descriptions.Item label="带宽">{order.network.bandwidth} Mbps</Descriptions.Item>
-                    <Descriptions.Item label="开始时间">{order.network.start_time}</Descriptions.Item>
-                    <Descriptions.Item label="状态"><Tag color="green">{order.network.status}</Tag></Descriptions.Item>
-                  </Descriptions>
-                </Col>
-              </Row>
-            </Card>
-          ))}
-        </TabPane>
-      </Tabs>
+  return (
+    <div style={{ padding: '24px' }} >
+      {activeTab === 'overview' && renderOverview()}
+      {activeTab === 'info' && renderTenantInfo()}
+      {activeTab === 'systems' && renderSystems()}
+      {activeTab === 'products' && renderProducts()}
+      {/* Orders tab is merged into systems or handled by TenantOrders page */}
 
       {/* 创建信息系统模态框 */}
       <Modal
@@ -533,7 +695,7 @@ const TenantPortal = () => {
           </Form.Item>
         </Form>
       </Modal>
-    </div>
+    </div >
   );
 };
 

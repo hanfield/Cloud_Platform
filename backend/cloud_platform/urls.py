@@ -42,6 +42,9 @@ urlpatterns = [
     path('api/products/', include('apps.products.urls')),
     path('api/services/', include('apps.services.urls')),
     path('api/assets/', include('apps.assets.urls')),
+    path('api/billing/', include('apps.billing.urls')),
+    path('api/orders/', include('apps.orders.urls')),
+    path('api/system/settings/', include('apps.system_settings.urls')),  # 系统设置
 ]
 
 # 开发环境下的静态文件和媒体文件服务

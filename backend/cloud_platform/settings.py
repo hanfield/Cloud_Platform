@@ -42,6 +42,9 @@ LOCAL_APPS = [
     'apps.products',
     'apps.services',
     'apps.assets',
+    'apps.billing',
+    'apps.orders',
+    'apps.system_settings',  # 系统设置应用
 ]
 
 INSTALLED_APPS = DJANGO_APPS + THIRD_PARTY_APPS + LOCAL_APPS

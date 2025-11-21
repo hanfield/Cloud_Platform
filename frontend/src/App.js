@@ -23,6 +23,10 @@ import CloudResources from './pages/CloudResources';
 import TenantPortal from './pages/TenantPortal';
 import Settings from './pages/Settings';
 import Profile from './pages/Profile';
+import BillingManagement from './pages/BillingManagement';
+import OrderManagement from './pages/OrderManagement';
+import TenantBilling from './pages/TenantBilling';
+import TenantOrders from './pages/TenantOrders';
 import './styles/main.css';
 import 'moment/locale/zh-cn';
 
@@ -68,7 +72,17 @@ function App() {
   // 如果未认证，显示登录或注册页面
   if (!isAuthenticated) {
     return (
-      <ConfigProvider locale={zhCN}>
+      <ConfigProvider
+        locale={zhCN}
+        theme={{
+          token: {
+            colorPrimary: '#1677ff',
+            borderRadius: 6,
+            fontFamily: "'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif",
+            colorBgLayout: '#f0f2f5',
+          },
+        }}
+      >
         <Router>
           <Routes>
             <Route path="/login" element={<Login />} />
@@ -83,13 +97,31 @@ function App() {
 
   if (userType === 'tenant') {
     return (
-      <ConfigProvider locale={zhCN}>
+      <ConfigProvider
+        locale={zhCN}
+        theme={{
+          token: {
+            colorPrimary: '#1677ff',
+            borderRadius: 6,
+            fontFamily: "'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif",
+            colorBgLayout: '#f0f2f5',
+          },
+        }}
+      >
         <Router>
           <div className="app-container">
             <AppHeader collapsed={collapsed} onToggle={toggleCollapsed} />
             <Layout className="main-layout">
               <Sidebar collapsed={collapsed} />
-              <Content className={`content-area ${collapsed ? 'sidebar-collapsed' : ''}`}>
+              <Content
+                className={`content-area ${collapsed ? 'sidebar-collapsed' : ''}`}
+                style={{
+                  marginTop: 96,
+                  marginLeft: collapsed ? 96 : 272,
+                  transition: 'all 0.2s',
+                  paddingRight: 16
+                }}
+              >
                 <Routes>
                   <Route path="/" element={<Navigate to="/tenant-portal" replace />} />
                   <Route path="/login" element={<Navigate to="/tenant-portal" replace />} />
@@ -97,7 +129,8 @@ function App() {
                   <Route path="/tenant-info" element={<TenantPortal />} />
                   <Route path="/tenant-systems" element={<TenantPortal />} />
                   <Route path="/tenant-products" element={<TenantPortal />} />
-                  <Route path="/tenant-orders" element={<TenantPortal />} />
+                  <Route path="/tenant-billing" element={<TenantBilling />} />
+                  <Route path="/tenant-orders" element={<TenantOrders />} />
                   <Route path="/profile" element={<Profile />} />
                   <Route path="*" element={<Navigate to="/tenant-portal" replace />} />
                 </Routes>
@@ -110,7 +143,38 @@ function App() {
   }
 
   return (
-    <ConfigProvider locale={zhCN}>
+    <ConfigProvider
+      locale={zhCN}
+      theme={{
+        token: {
+          colorPrimary: '#1668dc', // Deep corporate blue
+          borderRadius: 8,
+          fontFamily: "'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif",
+          colorBgLayout: '#e6eff7', // Darker cool gray-blue background
+          colorTextHeading: '#1f1f1f',
+          boxShadow: '0 4px 12px rgba(0, 0, 0, 0.08)',
+        },
+        components: {
+          Card: {
+            boxShadow: '0 4px 16px rgba(0, 0, 0, 0.08)',
+            borderRadiusLG: 12,
+          },
+          Button: {
+            borderRadius: 6,
+            controlHeight: 36,
+          },
+          Menu: {
+            itemBorderRadius: 6,
+            itemSelectedBg: '#e6f4ff',
+            itemSelectedColor: '#1668dc',
+          },
+          Layout: {
+            siderBg: '#ffffff',
+            headerBg: '#ffffff',
+          }
+        }
+      }}
+    >
       <Router>
         <div className="app-container">
           <AppHeader collapsed={collapsed} onToggle={toggleCollapsed} />
@@ -118,7 +182,15 @@ function App() {
           <Layout className="main-layout">
             <Sidebar collapsed={collapsed} />
 
-            <Content className={`content-area ${collapsed ? 'sidebar-collapsed' : ''}`}>
+            <Content
+              className={`content-area ${collapsed ? 'sidebar-collapsed' : ''}`}
+              style={{
+                marginTop: 96, // 16px + 64px + 16px
+                marginLeft: collapsed ? 96 : 272, // 16px + width + 16px
+                transition: 'all 0.2s',
+                paddingRight: 16 // Add right padding to balance
+              }}
+            >
               <Routes>
                 <Route path="/" element={<Navigate to="/dashboard" replace />} />
                 <Route path="/login" element={<Navigate to="/dashboard" replace />} />
@@ -131,6 +203,8 @@ function App() {
                 <Route path="/services" element={<ServiceManagement />} />
                 <Route path="/assets" element={<AssetManagement />} />
                 <Route path="/cloud-resources" element={<CloudResources />} />
+                <Route path="/billing" element={<BillingManagement />} />
+                <Route path="/orders" element={<OrderManagement />} />
                 <Route path="/tenant-portal" element={<TenantPortal />} />
                 <Route path="/settings" element={<Settings />} />
                 <Route path="/profile" element={<Profile />} />

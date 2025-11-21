@@ -4,6 +4,8 @@
 
 from rest_framework_simplejwt.serializers import TokenObtainPairSerializer
 from rest_framework import serializers
+from django.contrib.auth.models import User
+from django.contrib.auth import authenticate
 from .user_models import UserProfile
 
 
@@ -12,6 +14,48 @@ class CustomTokenObtainPairSerializer(TokenObtainPairSerializer):
 
     def validate(self, attrs):
         """验证并返回token"""
+        username = attrs.get('username')
+        password = attrs.get('password')
+
+        # 先检查用户是否存在
+        try:
+            user = User.objects.get(username=username)
+        except User.DoesNotExist:
+            # 用户不存在，调用父类方法返回标准错误
+            return super().validate(attrs)
+
+        # 检查密码是否正确
+        if not user.check_password(password):
+            # 密码错误，调用父类方法返回标准错误
+            return super().validate(attrs)
+
+        # 检查用户是否被禁用（is_active=False）
+        if not user.is_active:
+            # 用户被禁用，检查具体原因
+            try:
+                profile = user.profile
+                if profile.status == UserProfile.UserStatus.SUSPENDED:
+                    raise serializers.ValidationError({
+                        'detail': '账号已被暂停，请联系管理员'
+                    })
+                elif profile.status == UserProfile.UserStatus.PENDING:
+                    raise serializers.ValidationError({
+                        'detail': '账号待审核，请等待管理员审批'
+                    })
+                elif profile.status == UserProfile.UserStatus.REJECTED:
+                    raise serializers.ValidationError({
+                        'detail': '账号注册已被拒绝，请联系管理员'
+                    })
+                else:
+                    raise serializers.ValidationError({
+                        'detail': '账号已被禁用，请联系管理员'
+                    })
+            except UserProfile.DoesNotExist:
+                raise serializers.ValidationError({
+                    'detail': '账号已被禁用，请联系管理员'
+                })
+
+        # 用户存在且密码正确且is_active=True，调用父类方法获取token
         data = super().validate(attrs)
 
         try:
@@ -23,7 +67,7 @@ class CustomTokenObtainPairSerializer(TokenObtainPairSerializer):
                 })
 
             data['user_type'] = profile.user_type
-            data['user_id'] = str(self.user.id)  # 使用user.id而不是profile.id
+            data['user_id'] = str(self.user.id)
             data['username'] = self.user.username
             data['email'] = self.user.email
 
@@ -49,7 +93,7 @@ class CustomTokenObtainPairSerializer(TokenObtainPairSerializer):
         try:
             profile = user.profile
             token['user_type'] = profile.user_type
-            token['user_id'] = str(user.id)  # 使用user.id而不是profile.id
+            token['user_id'] = str(user.id)
 
             if profile.tenant:
                 token['tenant_id'] = str(profile.tenant.id)

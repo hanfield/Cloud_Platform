@@ -14,7 +14,9 @@ import {
   ToolOutlined,
   HomeOutlined,
   AppstoreOutlined,
-  ShopOutlined
+  ShopOutlined,
+  FileTextOutlined,
+  PayCircleOutlined
 } from '@ant-design/icons';
 
 const { Sider } = Layout;
@@ -88,6 +90,11 @@ const Sidebar = ({ collapsed }) => {
       label: '产品订阅'
     },
     {
+      key: '/tenant-billing',
+      icon: <PayCircleOutlined />,
+      label: '账单管理'
+    },
+    {
       key: '/tenant-orders',
       icon: <AppstoreOutlined />,
       label: '订单管理'
@@ -117,16 +124,31 @@ const Sidebar = ({ collapsed }) => {
       collapsible
       collapsed={collapsed}
       width={240}
-      theme="dark"
+      theme="light"
+      style={{
+        boxShadow: '0 8px 32px rgba(0,0,0,0.12)',
+        zIndex: 99,
+        background: 'rgba(255, 255, 255, 0.7)', // Light glass
+        backdropFilter: 'blur(12px)',
+        WebkitBackdropFilter: 'blur(12px)',
+        position: 'fixed',
+        left: 16,
+        top: 96, // 16px margin + 64px header + 16px gap
+        bottom: 16,
+        overflowY: 'auto',
+        borderRadius: 16,
+        border: '1px solid rgba(255, 255, 255, 0.3)'
+      }}
     >
       <Menu
-        theme="dark"
+        theme="light"
         mode="inline"
         selectedKeys={[selectedKey]}
         defaultOpenKeys={openKeys}
         items={menuItems}
         onClick={handleMenuClick}
         className="sidebar-menu"
+        style={{ paddingTop: 8 }}
       />
     </Sider>
   );

@@ -12,8 +12,9 @@ import {
   ExportOutlined,
   UserOutlined,
   DesktopOutlined,
+  FileTextOutlined,
   SafetyCertificateOutlined,
-  FileTextOutlined
+  PayCircleOutlined
 } from '@ant-design/icons';
 import TenantTable from '../components/TenantTable';
 import TenantForm from '../components/TenantForm';
@@ -21,6 +22,8 @@ import tenantService from '../services/tenantService';
 import contractService from '../services/contractService';
 import informationSystemService from '../services/informationSystemService';
 import { exportToCSV, formatDate, getStatusText, getStatusColor } from '../utils/helpers';
+import AdminBillingView from './AdminBillingView';
+import OrderManagement from './OrderManagement';
 
 const { Search } = Input;
 const { Option } = Select;
@@ -455,7 +458,7 @@ const TenantManagement = () => {
                       render: (type) => (
                         <Tag color={
                           type === '客户' ? 'blue' :
-                          type === '项目交付团队' ? 'green' : 'orange'
+                            type === '项目交付团队' ? 'green' : 'orange'
                         }>
                           {type}
                         </Tag>
@@ -540,12 +543,12 @@ const TenantManagement = () => {
                       render: (status) => (
                         <Tag color={
                           status === 'running' ? 'green' :
-                          status === 'stopped' ? 'red' :
-                          status === 'maintenance' ? 'orange' : 'gray'
+                            status === 'stopped' ? 'red' :
+                              status === 'maintenance' ? 'orange' : 'gray'
                         }>
                           {status === 'running' ? '运行中' :
-                           status === 'stopped' ? '已停止' :
-                           status === 'maintenance' ? '维护中' : '异常'}
+                            status === 'stopped' ? '已停止' :
+                              status === 'maintenance' ? '维护中' : '异常'}
                         </Tag>
                       )
                     },
@@ -624,14 +627,14 @@ const TenantManagement = () => {
                       render: (status) => (
                         <Tag color={
                           status === 'active' ? 'green' :
-                          status === 'draft' ? 'default' :
-                          status === 'pending' ? 'orange' :
-                          status === 'expired' ? 'red' : 'gray'
+                            status === 'draft' ? 'default' :
+                              status === 'pending' ? 'orange' :
+                                status === 'expired' ? 'red' : 'gray'
                         }>
                           {status === 'active' ? '生效中' :
-                           status === 'draft' ? '草稿' :
-                           status === 'pending' ? '待审批' :
-                           status === 'expired' ? '已过期' : '已终止'}
+                            status === 'draft' ? '草稿' :
+                              status === 'pending' ? '待审批' :
+                                status === 'expired' ? '已过期' : '已终止'}
                         </Tag>
                       )
                     },
@@ -656,6 +659,32 @@ const TenantManagement = () => {
               )}
             </div>
           ),
+        },
+        {
+          key: 'billing',
+          label: (
+            <span>
+              <PayCircleOutlined />
+              账单管理
+            </span>
+          ),
+          children: (
+            <AdminBillingView tenantId={tenant.id} />
+          ),
+        },
+        {
+          key: 'orders',
+          label: (
+            <span>
+              <FileTextOutlined />
+              订单管理
+            </span>
+          ),
+          children: (
+            <div style={{ padding: '16px 0' }}>
+              <OrderManagement tenantId={tenant.id} />
+            </div>
+          ),
         }
       ];
 
@@ -671,7 +700,7 @@ const TenantManagement = () => {
             />
           </div>
         ),
-        onOk() {}
+        onOk() { }
       });
     } catch (error) {
       console.error('获取租户详情失败:', error);
@@ -692,7 +721,7 @@ const TenantManagement = () => {
             <p><strong>描述：</strong>{tenant.description || '-'}</p>
           </div>
         ),
-        onOk() {}
+        onOk() { }
       });
     }
   };

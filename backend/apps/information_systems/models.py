@@ -343,7 +343,8 @@ class SystemBillingRecord(models.Model):
 
     def save(self, *args, **kwargs):
         """保存时自动计算实际费用"""
-        self.actual_cost = self.base_cost * self.discount_rate
+        from decimal import Decimal
+        self.actual_cost = self.base_cost * Decimal(str(self.discount_rate))
         super().save(*args, **kwargs)
 
 

@@ -94,26 +94,33 @@ const Register = () => {
   return (
     <div style={{
       minHeight: '100vh',
-      background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
+      background: 'linear-gradient(135deg, #667eea 0%, #764ba2 50%, #4facfe 100%)',
       display: 'flex',
       justifyContent: 'center',
       alignItems: 'center',
       padding: '40px 20px'
     }}>
       <Card
-        title={
-          <Space>
-            <CloudOutlined style={{ fontSize: '20px', color: '#1890ff' }} />
-            <span>用户注册</span>
-          </Space>
-        }
+        bordered={false}
         style={{
           width: 480,
+          maxWidth: '100%',
           maxHeight: '90vh',
           overflow: 'auto',
-          boxShadow: '0 8px 32px rgba(0, 0, 0, 0.1)'
+          boxShadow: '0 8px 32px rgba(0, 0, 0, 0.12)',
+          borderRadius: 8
         }}
       >
+        <div style={{ textAlign: 'center', marginBottom: 24 }}>
+          <CloudOutlined style={{ fontSize: '40px', color: '#1677ff', marginBottom: 12 }} />
+          <div style={{ fontSize: '20px', fontWeight: 600, color: '#262626', marginBottom: 4 }}>
+            用户注册
+          </div>
+          <div style={{ fontSize: '13px', color: '#8c8c8c' }}>
+            User Registration
+          </div>
+        </div>
+
         <Form
           name="register"
           onFinish={handleRegister}
@@ -239,7 +246,7 @@ const Register = () => {
               type="primary"
               htmlType="submit"
               loading={loading}
-              style={{ width: '100%' }}
+              block
             >
               注册
             </Button>

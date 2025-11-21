@@ -1,7 +1,7 @@
 {
   "name": "cloud-platform-frontend",
   "version": "1.0.0",
-  "description": "云平台管理系统前端",
+  "description": "云平台管理系统前端 - 基于React的云资源管理平台",
   "private": true,
   "dependencies": {
     "react": "^18.3.1",
@@ -23,7 +23,9 @@
     "start": "react-scripts start",
     "build": "react-scripts build",
     "test": "react-scripts test",
-    "eject": "react-scripts eject"
+    "eject": "react-scripts eject",
+    "lint": "eslint src --ext .js,.jsx",
+    "format": "prettier --write \"src/**/*.{js,jsx,json,css,md}\""
   },
   "eslintConfig": {
     "extends": [

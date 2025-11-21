@@ -25,6 +25,14 @@ from .models import Stakeholder
 logger = logging.getLogger(__name__)
 
 
+def is_admin_user(user):
+    """检查用户是否是管理员"""
+    try:
+        return user.is_superuser or user.profile.user_type == 'admin'
+    except:
+        return False
+
+
 def sync_user_to_stakeholder(profile):
     """
     同步用户到干系人列表
@@ -57,13 +65,11 @@ def sync_user_to_stakeholder(profile):
             stakeholder.save()
             logger.info(f"用户 {profile.user.username} 已添加到租户 {profile.tenant.name} 的干系人列表")
 
-    elif profile.status in [UserProfile.UserStatus.PENDING, UserProfile.UserStatus.REJECTED]:
-        # 待审核或已拒绝状态：移除干系人
+    elif profile.status in [UserProfile.UserStatus.PENDING, UserProfile.UserStatus.REJECTED, UserProfile.UserStatus.SUSPENDED]:
+        # 待审核、已拒绝或已暂停状态：移除干系人
         if existing_stakeholder:
             existing_stakeholder.delete()
             logger.info(f"用户 {profile.user.username} 已从租户 {profile.tenant.name} 的干系人列表移除")
-
-    # 暂停状态不做处理，保留在干系人列表中
 
 
 @csrf_exempt
@@ -139,10 +145,63 @@ class UserProfileViewSet(viewsets.ModelViewSet):
 
         return queryset
 
-    def perform_create(self, serializer):
+    def create(self, request, *args, **kwargs):
         """创建用户"""
-        profile = serializer.save()
-        logger.info(f"管理员 {self.request.user.username} 创建了用户 {profile.user.username}")
+        serializer = self.get_serializer(data=request.data)
+
+        if not serializer.is_valid():
+            # 返回详细的验证错误信息
+            errors = serializer.errors
+            error_messages = []
+            for field, field_errors in errors.items():
+                for error in field_errors:
+                    if field == 'non_field_errors':
+                        error_messages.append(str(error))
+                    elif field == 'username':
+                        error_messages.append(f"用户名: {error}")
+                    elif field == 'email':
+                        error_messages.append(f"邮箱: {error}")
+                    elif field == 'tenant_id':
+                        error_messages.append(f"租户: {error}")
+                    elif field == 'password':
+                        error_messages.append(f"密码: {error}")
+                    else:
+                        error_messages.append(f"{field}: {error}")
+
+            return Response({
+                'detail': '; '.join(error_messages) if error_messages else '创建用户失败',
+                'errors': errors
+            }, status=status.HTTP_400_BAD_REQUEST)
+
+        try:
+            profile = serializer.save()
+            logger.info(f"管理员 {request.user.username} 创建了用户 {profile.user.username}")
+
+            # 如果是激活状态，尝试同步到干系人列表（失败不影响用户创建）
+            if profile.status == UserProfile.UserStatus.ACTIVE and profile.tenant:
+                try:
+                    sync_user_to_stakeholder(profile)
+                except Exception as sync_error:
+                    logger.warning(f"同步用户到干系人列表失败: {str(sync_error)}")
+                    # 不抛出异常，用户已创建成功
+
+            return Response({
+                'detail': '用户创建成功',
+                'username': profile.user.username,
+                'email': profile.user.email,
+                'user_type': profile.user_type,
+                'user_type_display': profile.get_user_type_display(),
+                'status': profile.status,
+                'status_display': profile.get_status_display(),
+                'tenant_id': str(profile.tenant.id) if profile.tenant else None,
+                'tenant_name': profile.tenant.name if profile.tenant else None,
+                'id': str(profile.id)
+            }, status=status.HTTP_201_CREATED)
+        except Exception as e:
+            logger.error(f"创建用户失败: {str(e)}", exc_info=True)
+            return Response({
+                'detail': f'创建用户失败: {str(e)}'
+            }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
 
     def perform_update(self, serializer):
         """更新用户"""
@@ -169,6 +228,13 @@ class UserProfileViewSet(viewsets.ModelViewSet):
     @action(detail=True, methods=['post'])
     def approve(self, request, pk=None):
         """审核通过用户"""
+        # 权限检查：只有管理员可以审批
+        if not is_admin_user(request.user):
+            return Response(
+                {'detail': '只有管理员可以审批用户'},
+                status=status.HTTP_403_FORBIDDEN
+            )
+
         profile = self.get_object()
 
         if profile.status != UserProfile.UserStatus.PENDING:
@@ -183,7 +249,10 @@ class UserProfileViewSet(viewsets.ModelViewSet):
         profile.user.save()
 
         # 同步到干系人列表
-        sync_user_to_stakeholder(profile)
+        try:
+            sync_user_to_stakeholder(profile)
+        except Exception as e:
+            logger.warning(f"同步用户到干系人列表失败: {str(e)}")
 
         logger.info(f"管理员 {request.user.username} 审核通过了用户 {profile.user.username}")
         return Response({'detail': '用户已审核通过'}, status=status.HTTP_200_OK)
@@ -191,6 +260,13 @@ class UserProfileViewSet(viewsets.ModelViewSet):
     @action(detail=True, methods=['post'])
     def reject(self, request, pk=None):
         """拒绝用户注册"""
+        # 权限检查：只有管理员可以拒绝
+        if not is_admin_user(request.user):
+            return Response(
+                {'detail': '只有管理员可以拒绝用户注册'},
+                status=status.HTTP_403_FORBIDDEN
+            )
+
         profile = self.get_object()
 
         if profile.status != UserProfile.UserStatus.PENDING:
@@ -205,7 +281,10 @@ class UserProfileViewSet(viewsets.ModelViewSet):
         profile.user.save()
 
         # 从干系人列表移除
-        sync_user_to_stakeholder(profile)
+        try:
+            sync_user_to_stakeholder(profile)
+        except Exception as e:
+            logger.warning(f"同步用户到干系人列表失败: {str(e)}")
 
         logger.info(f"管理员 {request.user.username} 拒绝了用户 {profile.user.username}")
         return Response({'detail': '用户注册已拒绝'}, status=status.HTTP_200_OK)
@@ -213,6 +292,13 @@ class UserProfileViewSet(viewsets.ModelViewSet):
     @action(detail=True, methods=['post'])
     def activate(self, request, pk=None):
         """激活用户"""
+        # 权限检查：只有管理员可以激活用户
+        if not is_admin_user(request.user):
+            return Response(
+                {'detail': '只有管理员可以激活用户'},
+                status=status.HTTP_403_FORBIDDEN
+            )
+
         profile = self.get_object()
         profile.status = UserProfile.UserStatus.ACTIVE
         profile.user.is_active = True
@@ -220,7 +306,10 @@ class UserProfileViewSet(viewsets.ModelViewSet):
         profile.user.save()
 
         # 同步到干系人列表
-        sync_user_to_stakeholder(profile)
+        try:
+            sync_user_to_stakeholder(profile)
+        except Exception as e:
+            logger.warning(f"同步用户到干系人列表失败: {str(e)}")
 
         logger.info(f"管理员 {request.user.username} 激活了用户 {profile.user.username}")
         return Response({'detail': '用户已激活'}, status=status.HTTP_200_OK)
@@ -228,7 +317,22 @@ class UserProfileViewSet(viewsets.ModelViewSet):
     @action(detail=True, methods=['post'])
     def suspend(self, request, pk=None):
         """暂停用户"""
+        # 权限检查：只有管理员可以暂停用户
+        if not is_admin_user(request.user):
+            return Response(
+                {'detail': '只有管理员可以暂停用户'},
+                status=status.HTTP_403_FORBIDDEN
+            )
+
         profile = self.get_object()
+
+        # 不能暂停自己
+        if profile.user == request.user:
+            return Response(
+                {'detail': '不能暂停自己的账号'},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+
         profile.status = UserProfile.UserStatus.SUSPENDED
         profile.user.is_active = False
         profile.save()
@@ -240,7 +344,14 @@ class UserProfileViewSet(viewsets.ModelViewSet):
     @action(detail=True, methods=['post'])
     def reset_password(self, request, pk=None):
         """重置用户密码"""
+        # 权限检查：只有管理员可以重置其他用户密码
         profile = self.get_object()
+        if profile.user != request.user and not is_admin_user(request.user):
+            return Response(
+                {'detail': '只有管理员可以重置其他用户的密码'},
+                status=status.HTTP_403_FORBIDDEN
+            )
+
         serializer = UserPasswordResetSerializer(data=request.data)
 
         if serializer.is_valid():

@@ -59,7 +59,7 @@ const Dashboard = () => {
     {
       title: '创建租户',
       icon: <TeamOutlined />,
-      color: '#1890ff',
+      color: '#1668dc',
       onClick: () => navigate('/tenants')
     },
     {
@@ -180,16 +180,16 @@ const Dashboard = () => {
       {/* 核心统计数据 */}
       <Row gutter={[16, 16]} style={{ marginBottom: 24 }}>
         <Col xs={24} sm={12} lg={6}>
-          <Card hoverable>
+          <Card bordered={false} hoverable className="animate-slide-up delay-100">
             <Statistic
               title="租户总数"
               value={stats.tenants.total_count || 0}
               prefix={<TeamOutlined />}
               suffix="个"
-              valueStyle={{ color: '#1890ff' }}
+              valueStyle={{ color: '#1668dc' }}
             />
             <Divider style={{ margin: '12px 0' }} />
-            <Text type="secondary">
+            <Text type="secondary" style={{ fontSize: '13px' }}>
               活跃: {stats.tenants.active_count || 0} |
               暂停: {stats.tenants.suspended_count || 0}
             </Text>
@@ -197,7 +197,7 @@ const Dashboard = () => {
         </Col>
 
         <Col xs={24} sm={12} lg={6}>
-          <Card hoverable>
+          <Card bordered={false} hoverable className="animate-slide-up delay-200">
             <Statistic
               title="用户总数"
               value={stats.users.total_count || 0}
@@ -206,7 +206,7 @@ const Dashboard = () => {
               valueStyle={{ color: '#52c41a' }}
             />
             <Divider style={{ margin: '12px 0' }} />
-            <Text type="secondary">
+            <Text type="secondary" style={{ fontSize: '13px' }}>
               活跃: {stats.users.active_count || 0} |
               待审核: {stats.users.pending_count || 0}
             </Text>
@@ -214,7 +214,7 @@ const Dashboard = () => {
         </Col>
 
         <Col xs={24} sm={12} lg={6}>
-          <Card hoverable>
+          <Card bordered={false} hoverable className="animate-slide-up delay-300">
             <Statistic
               title="合同总数"
               value={stats.contracts.total_count || 0}
@@ -223,7 +223,7 @@ const Dashboard = () => {
               valueStyle={{ color: '#faad14' }}
             />
             <Divider style={{ margin: '12px 0' }} />
-            <Text type="secondary">
+            <Text type="secondary" style={{ fontSize: '13px' }}>
               生效中: {stats.contracts.active_count || 0} |
               即将到期: {stats.contracts.expiring_count || 0}
             </Text>
@@ -231,7 +231,7 @@ const Dashboard = () => {
         </Col>
 
         <Col xs={24} sm={12} lg={6}>
-          <Card hoverable>
+          <Card bordered={false} hoverable className="animate-slide-up delay-400">
             <Statistic
               title="系统健康度"
               value={99.8}
@@ -241,7 +241,7 @@ const Dashboard = () => {
               valueStyle={{ color: '#722ed1' }}
             />
             <Divider style={{ margin: '12px 0' }} />
-            <Text type="secondary">
+            <Text type="secondary" style={{ fontSize: '13px' }}>
               所有服务运行正常
             </Text>
           </Card>
@@ -250,6 +250,7 @@ const Dashboard = () => {
 
       {/* 快捷操作 */}
       <Card
+        bordered={false}
         title={
           <Space>
             <ThunderboltOutlined />
@@ -262,18 +263,21 @@ const Dashboard = () => {
           {quickActions.map((action, index) => (
             <Col xs={24} sm={12} md={6} key={index}>
               <Card
+                bordered={false}
                 hoverable
                 onClick={action.onClick}
                 style={{
                   textAlign: 'center',
-                  borderColor: action.color,
-                  cursor: 'pointer'
+                  cursor: 'pointer',
+                  transition: 'all 0.3s',
+                  border: `1px solid ${action.color}20`,
                 }}
+                bodyStyle={{ padding: '24px 16px' }}
               >
-                <div style={{ fontSize: 32, color: action.color, marginBottom: 8 }}>
+                <div style={{ fontSize: 32, color: action.color, marginBottom: 12 }}>
                   {action.icon}
                 </div>
-                <Text strong>{action.title}</Text>
+                <Text strong style={{ fontSize: '14px' }}>{action.title}</Text>
               </Card>
             </Col>
           ))}
@@ -284,6 +288,7 @@ const Dashboard = () => {
         {/* 系统服务状态 */}
         <Col xs={24} lg={14}>
           <Card
+            bordered={false}
             title={
               <Space>
                 <DatabaseOutlined />
@@ -296,7 +301,7 @@ const Dashboard = () => {
               dataSource={systemStatus}
               columns={statusColumns}
               pagination={false}
-              size="small"
+              size="middle"
               rowKey="name"
             />
           </Card>
@@ -305,6 +310,7 @@ const Dashboard = () => {
         {/* 最近活动 */}
         <Col xs={24} lg={10}>
           <Card
+            bordered={false}
             title={
               <Space>
                 <ClockCircleOutlined />
@@ -316,7 +322,7 @@ const Dashboard = () => {
             <Timeline
               items={recentActivities.map(activity => ({
                 color: activity.type === 'success' ? 'green' :
-                       activity.type === 'warning' ? 'orange' : 'blue',
+                  activity.type === 'warning' ? 'orange' : 'blue',
                 children: (
                   <div>
                     <Text type="secondary" style={{ fontSize: 12 }}>
@@ -334,11 +340,11 @@ const Dashboard = () => {
       {/* 资源使用概览 */}
       <Row gutter={[16, 16]} style={{ marginTop: 16 }}>
         <Col xs={24} sm={8}>
-          <Card title="CPU 使用率" size="small">
+          <Card title="CPU 使用率" size="small" bordered={false}>
             <Progress
               type="dashboard"
               percent={45}
-              strokeColor="#1890ff"
+              strokeColor="#1668dc"
             />
             <Text type="secondary" style={{ display: 'block', textAlign: 'center', marginTop: 8 }}>
               当前负载：中等
@@ -347,7 +353,7 @@ const Dashboard = () => {
         </Col>
 
         <Col xs={24} sm={8}>
-          <Card title="内存使用率" size="small">
+          <Card title="内存使用率" size="small" bordered={false}>
             <Progress
               type="dashboard"
               percent={62}
@@ -360,7 +366,7 @@ const Dashboard = () => {
         </Col>
 
         <Col xs={24} sm={8}>
-          <Card title="存储使用率" size="small">
+          <Card title="存储使用率" size="small" bordered={false}>
             <Progress
               type="dashboard"
               percent={38}

@@ -135,12 +135,22 @@ class UserCreateSerializer(serializers.Serializer):
     )
 
     # 只读字段，用于返回创建后的数据
-    id = serializers.IntegerField(read_only=True)
-    tenant = serializers.UUIDField(read_only=True, source='tenant.id')
-    tenant_name = serializers.CharField(read_only=True, source='tenant.name')
+    id = serializers.UUIDField(read_only=True)
     user_type_display = serializers.CharField(read_only=True, source='get_user_type_display')
     status_display = serializers.CharField(read_only=True, source='get_status_display')
     created_at = serializers.DateTimeField(read_only=True)
+
+    # 使用方法字段处理可能为 None 的 tenant
+    tenant = serializers.SerializerMethodField()
+    tenant_name = serializers.SerializerMethodField()
+
+    def get_tenant(self, obj):
+        """获取租户ID"""
+        return str(obj.tenant.id) if obj.tenant else None
+
+    def get_tenant_name(self, obj):
+        """获取租户名称"""
+        return obj.tenant.name if obj.tenant else None
 
     def validate_username(self, value):
         """验证用户名"""
@@ -213,11 +223,13 @@ class UserUpdateSerializer(serializers.ModelSerializer):
 
     email = serializers.EmailField(source='user.email')
     status = serializers.CharField(read_only=True)  # 状态只读，不允许通过编辑修改
+    user_type = serializers.CharField(read_only=True)  # 用户类型只读，防止权限提升
+    tenant = serializers.PrimaryKeyRelatedField(read_only=True)  # 租户只读，防止越权访问
 
     class Meta:
         model = UserProfile
         fields = ['email', 'user_type', 'tenant', 'status', 'phone', 'department', 'position']
-        read_only_fields = ['status']  # 明确标记status为只读
+        read_only_fields = ['status', 'user_type', 'tenant']  # 明确标记敏感字段为只读
 
     def validate_email(self, value):
         """验证邮箱"""
