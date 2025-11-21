@@ -970,7 +970,7 @@ const TenantManagement = () => {
         onCancel={() => setModalVisible(false)}
         footer={null}
         width={900}
-        destroyOnClose
+        destroyOnHidden
       >
         <TenantForm
           initialValues={currentTenant}

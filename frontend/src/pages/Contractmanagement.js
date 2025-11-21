@@ -445,7 +445,7 @@ const ContractManagement = () => {
         onCancel={() => setModalVisible(false)}
         footer={null}
         width={900}
-        destroyOnClose
+        destroyOnHidden
       >
         <ContractForm
           initialValues={currentContract}

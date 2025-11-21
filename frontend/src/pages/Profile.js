@@ -34,36 +34,36 @@ const Profile = () => {
 
   const [passwordVisible, setPasswordVisible] = useState(false);
   const [loginHistoryVisible, setLoginHistoryVisible] = useState(false);
+  const [loginHistory, setLoginHistory] = useState([]);
+  const [loadingHistory, setLoadingHistory] = useState(false);
   const [form] = Form.useForm();
   const [passwordForm] = Form.useForm();
 
-  // 模拟登录历史数据
-  const [loginHistory] = useState([
-    {
-      id: 1,
-      loginTime: '2024-12-26 10:30:00',
-      ip: '192.168.1.100',
-      device: 'Chrome 120.0 on Windows',
-      location: '北京市',
-      status: 'success'
-    },
-    {
-      id: 2,
-      loginTime: '2024-12-25 15:20:00',
-      ip: '192.168.1.100',
-      device: 'Chrome 120.0 on Windows',
-      location: '北京市',
-      status: 'success'
-    },
-    {
-      id: 3,
-      loginTime: '2024-12-24 09:15:00',
-      ip: '192.168.1.101',
-      device: 'Firefox 121.0 on Mac',
-      location: '上海市',
-      status: 'success'
+  // 获取登录历史
+  const fetchLoginHistory = async () => {
+    setLoadingHistory(true);
+    try {
+      const response = await api.get('/monitoring/login-history/');
+
+      // 转换数据格式以匹配表格列
+      const historyData = (response.results || response || []).map((item, index) => ({
+        id: item.id || index,
+        loginTime: item.timestamp || item.created_at,
+        ip: item.ip_address || '-',
+        device: item.user_agent || '-',
+        location: item.action_display || '登录',
+        status: 'success'
+      }));
+
+      setLoginHistory(historyData);
+    } catch (error) {
+      console.error('获取登录历史失败:', error);
+      message.error('获取登录历史失败');
+      setLoginHistory([]);
+    } finally {
+      setLoadingHistory(false);
     }
-  ]);
+  };
 
   useEffect(() => {
     // 从后端API获取当前用户信息
@@ -518,6 +518,11 @@ const Profile = () => {
         title="登录历史"
         open={loginHistoryVisible}
         onCancel={() => setLoginHistoryVisible(false)}
+        afterOpenChange={(open) => {
+          if (open) {
+            fetchLoginHistory();
+          }
+        }}
         footer={null}
         width={800}
       >
@@ -525,6 +530,7 @@ const Profile = () => {
           columns={loginHistoryColumns}
           dataSource={loginHistory}
           rowKey="id"
+          loading={loadingHistory}
           pagination={{ pageSize: 10 }}
         />
       </Modal>

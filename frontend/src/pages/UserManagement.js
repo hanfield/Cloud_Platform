@@ -481,7 +481,7 @@ const UserManagement = () => {
         onOk={handleSubmit}
         onCancel={() => setModalVisible(false)}
         width={600}
-        destroyOnClose
+        destroyOnHidden
       >
         <Form
           form={form}
@@ -589,7 +589,7 @@ const UserManagement = () => {
         open={passwordModalVisible}
         onOk={handlePasswordSubmit}
         onCancel={() => setPasswordModalVisible(false)}
-        destroyOnClose
+        destroyOnHidden
       >
         <Form
           form={passwordForm}

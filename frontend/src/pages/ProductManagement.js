@@ -31,6 +31,7 @@ import {
 import ProductTable from '../components/ProductTable';
 import ProductForm from '../components/ProductForm';
 import DiscountLevelManagement from '../components/DiscountLevelManagement';
+import useApiCall from '../hooks/useApiCall';
 import productService from '../services/productService';
 import { exportToCSV } from '../utils/helpers';
 
@@ -40,7 +41,6 @@ const { TabPane } = Tabs;
 
 const ProductManagement = () => {
   const [products, setProducts] = useState([]);
-  const [loading, setLoading] = useState(false);
   const [modalVisible, setModalVisible] = useState(false);
   const [modalMode, setModalMode] = useState('create'); // create or edit
   const [currentProduct, setCurrentProduct] = useState(null);
@@ -57,48 +57,64 @@ const ProductManagement = () => {
     status: undefined
   });
 
+  // 使用useApiCall获取产品列表
+  const { loading, execute: fetchProducts } = useApiCall('/products/products/', {
+    showErrorMessage: true,
+    onSuccess: (data) => {
+      setProducts(data.results || data || []);
+      setPagination({
+        ...pagination,
+        total: data.count || data.length || 0
+      });
+    }
+  });
+
+  // 使用useApiCall获取统计信息
+  const { execute: fetchProductStatistics } = useApiCall('/products/products/statistics/', {
+    onSuccess: (data) => setStats(data)
+  });
+
+  // 创建产品
+  const { execute: createProduct } = useApiCall('/products/products/', {
+    method: 'POST',
+    showSuccessMessage: true,
+    successMessage: '创建成功',
+    onSuccess: () => {
+      setModalVisible(false);
+      fetchProducts();
+      fetchProductStatistics();
+    }
+  });
+
+  // 更新产品
+  const { execute: updateProduct } = useApiCall('', {
+    method: 'PUT',
+    showSuccessMessage: true,
+    successMessage: '更新成功',
+    onSuccess: () => {
+      setModalVisible(false);
+      fetchProducts();
+      fetchProductStatistics();
+    }
+  });
+
+  // 删除产品
+  const { execute: deleteProduct } = useApiCall('', {
+    method: 'DELETE',
+    showSuccessMessage: true,
+    successMessage: '删除成功',
+    onSuccess: () => {
+      fetchProducts();
+      fetchProductStatistics();
+    }
+  });
+
   useEffect(() => {
     if (activeTab === 'products') {
       fetchProducts();
       fetchProductStatistics();
     }
   }, [pagination.current, pagination.pageSize, filters, activeTab]);
-
-  // 获取产品列表
-  const fetchProducts = async () => {
-    setLoading(true);
-    try {
-      const params = {
-        page: pagination.current,
-        page_size: pagination.pageSize,
-        search: filters.search || undefined,
-        product_type: filters.product_type,
-        status: filters.status
-      };
-
-      const response = await productService.getProducts(params);
-
-      setProducts(response?.results || response || []);
-      setPagination({
-        ...pagination,
-        total: response?.count || response?.length || 0
-      });
-    } catch (error) {
-      message.error('获取产品列表失败: ' + error.message);
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  // 获取产品统计信息
-  const fetchProductStatistics = async () => {
-    try {
-      const statsData = await productService.getProductStatistics();
-      setStats(statsData);
-    } catch (error) {
-      console.error('获取统计信息失败:', error);
-    }
-  };
 
   // 处理表格变化
   const handleTableChange = (newPagination, tableFilters, sorter) => {
@@ -187,7 +203,7 @@ const ProductManagement = () => {
             </div>
           </div>
         ),
-        onOk() {}
+        onOk() { }
       });
     } catch (error) {
       message.error('获取产品详情失败: ' + error.message);
@@ -432,7 +448,7 @@ const ProductManagement = () => {
         onCancel={() => setModalVisible(false)}
         footer={null}
         width={800}
-        destroyOnClose
+        destroyOnHidden
       >
         <ProductForm
           initialValues={currentProduct}

@@ -456,7 +456,7 @@ const ServiceManagement = () => {
         onCancel={() => setModalVisible(false)}
         footer={null}
         width={800}
-        destroyOnClose
+        destroyOnHidden
       >
         <ServiceForm
           initialValues={currentService}

@@ -1,7 +1,7 @@
 from rest_framework import viewsets, status
 from rest_framework.decorators import action
 from rest_framework.response import Response
-from rest_framework.permissions import IsAdminUser
+from rest_framework.permissions import IsAdminUser, IsAuthenticated
 from django.utils import timezone
 from datetime import timedelta
 from .models import SystemMetrics, ActivityLog
@@ -11,6 +11,13 @@ from .utils import get_system_resources, get_service_status, calculate_system_he
 class MonitoringViewSet(viewsets.ViewSet):
     """系统监控API"""
     permission_classes = [IsAdminUser]
+
+    def get_permissions(self):
+        """根据action动态设置权限"""
+        if self.action == 'login_history':
+            # 登录历史允许普通认证用户访问
+            return [IsAuthenticated()]
+        return [IsAdminUser()]
 
     @action(detail=False, methods=['get'])
     def resources(self, request):
@@ -74,6 +81,35 @@ class MonitoringViewSet(viewsets.ViewSet):
             })
         
         return Response(data)
+
+    @action(detail=False, methods=['get'], url_path='login-history')
+    def login_history(self, request):
+        """获取当前用户的登录历史"""
+        # 获取当前用户
+        user = request.user
+        
+        # 只返回当前用户的登录记录
+        logs = ActivityLog.objects.filter(
+            user=user,
+            action_type='login'
+        ).order_by('-created_at')[:50]
+        
+        data = []
+        for log in logs:
+            data.append({
+                'id': log.id,
+                'timestamp': log.created_at.isoformat(),
+                'created_at': log.created_at.isoformat(),
+                'ip_address': log.ip_address or '-',
+                'user_agent': log.user_agent or '-',
+                'action_display': log.get_action_type_display(),
+                'description': log.description
+            })
+        
+        return Response({
+            'results': data,
+            'count': len(data)
+        })
 
     @action(detail=False, methods=['get'])
     def overview(self, request):

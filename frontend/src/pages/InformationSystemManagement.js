@@ -467,7 +467,7 @@ const InformationSystemManagement = () => {
         onCancel={() => setModalVisible(false)}
         footer={null}
         width={1000}
-        destroyOnClose
+        destroyOnHidden
       >
         <InformationSystemForm
           initialValues={currentSystem}
