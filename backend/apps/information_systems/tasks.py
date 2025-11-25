@@ -274,3 +274,21 @@ def sync_vm_status():
         'updated_count': updated_count,
         'error_count': error_count
     }
+
+
+@shared_task
+def sync_all_openstack_vms():
+    """
+    全量同步 OpenStack 虚拟机任务：发现新虚拟机并更新现有虚拟机
+    建议每分钟执行一次
+    """
+    from ..openstack.utils import sync_openstack_vms_to_db
+    
+    logger.info("开始全量同步 OpenStack 虚拟机...")
+    try:
+        result = sync_openstack_vms_to_db()
+        logger.info(f"全量同步完成: {result}")
+        return result
+    except Exception as e:
+        logger.error(f"全量同步失败: {str(e)}", exc_info=True)
+        return {'error': str(e)}

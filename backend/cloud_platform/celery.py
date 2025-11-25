@@ -38,6 +38,12 @@ app.conf.beat_schedule = {
         'schedule': 5.0,  # 每5秒执行
         'options': {'queue': 'monitoring'}
     },
+    # 全量同步 OpenStack 虚拟机 - 每5秒执行一次
+    'sync-all-openstack-vms': {
+        'task': 'apps.information_systems.tasks.sync_all_openstack_vms',
+        'schedule': 5.0,  # 每5秒执行
+        'options': {'queue': 'monitoring'}
+    },
 }
 
 # Celery任务配置

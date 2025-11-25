@@ -423,20 +423,21 @@ def cloud_overview(request):
         stopped_instances = 0
 
         for server in servers:
-            if hasattr(server, 'status'):
-                if server.status == 'ACTIVE':
-                    running_instances += 1
-                else:
-                    stopped_instances += 1
+            server_status = server.get('status', '').upper() if isinstance(server, dict) else getattr(server, 'status', '').upper()
+            if server_status == 'ACTIVE':
+                running_instances += 1
+            elif server_status in ['SHUTOFF', 'STOPPED']:
+                stopped_instances += 1
 
             # 获取flavor信息计算资源
-            if hasattr(server, 'flavor') and 'id' in server.flavor:
+            server_flavor = server.get('flavor') if isinstance(server, dict) else getattr(server, 'flavor', None)
+            if server_flavor and isinstance(server_flavor, dict) and 'id' in server_flavor:
                 try:
-                    flavor = service.get_flavor(server.flavor['id'])
+                    flavor = service.get_flavor(server_flavor['id'])
                     if flavor:
-                        used_vcpus += getattr(flavor, 'vcpus', 0)
-                        used_ram += getattr(flavor, 'ram', 0)
-                        used_disk += getattr(flavor, 'disk', 0)
+                        used_vcpus += flavor.get('vcpus', 0) if isinstance(flavor, dict) else getattr(flavor, 'vcpus', 0)
+                        used_ram += flavor.get('ram', 0) if isinstance(flavor, dict) else getattr(flavor, 'ram', 0)
+                        used_disk += flavor.get('disk', 0) if isinstance(flavor, dict) else getattr(flavor, 'disk', 0)
                 except:
                     pass
 

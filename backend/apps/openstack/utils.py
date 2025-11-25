@@ -204,3 +204,135 @@ def format_resource_data(data: Dict[str, Any]) -> Dict[str, Any]:
             formatted_data[key] = value
 
     return formatted_data
+
+
+def sync_openstack_vms_to_db() -> Dict[str, int]:
+    """同步OpenStack虚拟机到本地数据库"""
+    from apps.information_systems.models import VirtualMachine, InformationSystem
+    from django.contrib.auth.models import User
+    from django.utils import timezone
+    from datetime import timedelta
+    
+    result = {'synced': 0, 'created': 0, 'updated': 0}
+    
+    try:
+        service = get_openstack_service()
+        servers = service.list_servers()
+        logger.info(f"从 OpenStack 获取到 {len(servers)} 台虚拟机")
+        
+        # 获取或创建默认租户和系统
+        admin_user = User.objects.filter(username='admin').first() or User.objects.first()
+        
+        tenant, _ = Tenant.objects.get_or_create(
+            name='OpenStack导入租户',
+            defaults={
+                'code': 'OPENSTACK_IMPORT',
+                'description': '用于存放从OpenStack导入的资源',
+                'contact_person': 'Admin',
+                'contact_phone': '13800000000',
+                'contact_email': 'admin@example.com',
+                'status': 'active',
+                'start_time': timezone.now(),
+                'end_time': timezone.now() + timedelta(days=3650)  # 10年有效期
+            }
+        )
+        
+        default_system, _ = InformationSystem.objects.get_or_create(
+            name='OpenStack导入系统',
+            defaults={
+                'code': 'OS_IMPORT_SYS',
+                'description': '用于存放从OpenStack导入的资源',
+                'system_type': InformationSystem.SystemType.OTHER,
+                'status': InformationSystem.Status.RUNNING,
+                'tenant': tenant,
+                'created_by': admin_user
+            }
+        )
+        
+        for server in servers:
+            try:
+                # 转换状态
+                status_map = {
+                    'ACTIVE': VirtualMachine.VMStatus.RUNNING,
+                    'SHUTOFF': VirtualMachine.VMStatus.STOPPED,
+                    'PAUSED': VirtualMachine.VMStatus.PAUSED,
+                    'ERROR': VirtualMachine.VMStatus.ERROR
+                }
+                vm_status = status_map.get(server.get('status'), VirtualMachine.VMStatus.STOPPED)
+                
+                # 获取规格信息
+                flavor = server.get('flavor', {})
+                cpu = 2
+                ram = 4
+                disk = 100
+                
+                # 方法1：尝试从服务器信息中直接获取 flavor 详情（某些 OpenStack 配置会返回完整 flavor 信息）
+                if 'vcpus' in flavor:
+                    cpu = flavor.get('vcpus', 2)
+                    ram = int(flavor.get('ram', 4096) / 1024)
+                    disk = flavor.get('disk', 100)
+                    logger.info(f"从服务器 flavor 对象获取配置: {server['name']} - {cpu}C/{ram}GB/{disk}GB")
+                # 方法2：通过 flavor ID 查询（如果 flavor 仍然存在）
+                elif flavor.get('id'):
+                    flavor_id = flavor.get('id')
+                    try:
+                        flavor_detail = service.get_flavor(flavor_id)
+                        if flavor_detail:
+                            cpu = flavor_detail.get('vcpus', 2)
+                            ram = int(flavor_detail.get('ram', 4096) / 1024)
+                            disk = flavor_detail.get('disk', 100)
+                            logger.info(f"从 flavor API 获取配置: {server['name']} - {cpu}C/{ram}GB/{disk}GB")
+                        else:
+                            logger.warning(f"Flavor {flavor_id} 不存在，使用默认配置: {server['name']}")
+                    except Exception as e:
+                        logger.warning(f"获取 flavor {flavor_id} 失败，使用默认配置: {str(e)}")
+
+                
+                # 获取网络信息
+                addresses = server.get('addresses', {})
+                ip_address = None
+                for net_name, ips in addresses.items():
+                    for ip in ips:
+                        if ip.get('version') == 4:
+                            ip_address = ip.get('addr')
+                            break
+                    if ip_address:
+                        break
+                
+                # 查找或创建本地记录
+                vm = VirtualMachine.objects.filter(openstack_id=server['id']).first()
+                
+                if vm:
+                    vm.name = server['name']
+                    vm.status = vm_status
+                    vm.cpu_cores = cpu
+                    vm.memory_gb = ram
+                    vm.disk_gb = disk
+                    vm.ip_address = ip_address
+                    vm.save()
+                    result['updated'] += 1
+                else:
+                    VirtualMachine.objects.create(
+                        openstack_id=server['id'],
+                        name=server['name'],
+                        information_system=default_system,
+                        status=vm_status,
+                        cpu_cores=cpu,
+                        memory_gb=ram,
+                        disk_gb=disk,
+                        ip_address=ip_address,
+                        created_by=admin_user,
+                        data_center_type=VirtualMachine.DataCenterType.PRODUCTION
+                    )
+                    result['created'] += 1
+                
+                result['synced'] += 1
+                
+            except Exception as e:
+                logger.error(f"同步虚拟机 {server.get('name')} 失败: {str(e)}")
+        
+        return result
+        
+    except Exception as e:
+        logger.error(f"同步OpenStack虚拟机失败: {str(e)}")
+        return result

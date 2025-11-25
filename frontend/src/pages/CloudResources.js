@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { Card, Row, Col, Statistic, Tabs, Table, Button, message, Tag, Space, Spin } from 'antd';
-import { CloudOutlined, DatabaseOutlined, HddOutlined, GlobalOutlined, ReloadOutlined, DesktopOutlined, SyncOutlined, PlayCircleOutlined, StopOutlined } from '@ant-design/icons';
+import { CloudOutlined, ReloadOutlined, DesktopOutlined, SyncOutlined, PlayCircleOutlined, StopOutlined } from '@ant-design/icons';
 import { PieChart, Pie, Cell, ResponsiveContainer, Tooltip, Legend } from 'recharts';
 import cloudService from '../services/cloudService';
 import axios from 'axios';
@@ -28,6 +28,7 @@ const CloudResources = () => {
 
   useEffect(() => {
     fetchAllData();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   // 自动刷新功能 - 每5秒刷新一次虚拟机数据
@@ -50,19 +51,47 @@ const CloudResources = () => {
   const fetchAllData = async () => {
     setLoading(true);
     try {
-      const overviewRes = await cloudService.getCloudOverview();
-      setOverview(overviewRes.data);
-      const serversRes = await cloudService.getServers();
-      setServers(Array.isArray(serversRes.data) ? serversRes.data : []);
-      const imagesRes = await cloudService.getImages();
-      setImages(Array.isArray(imagesRes.data) ? imagesRes.data : []);
-      const networksRes = await cloudService.getNetworks();
-      setNetworks(Array.isArray(networksRes.data) ? networksRes.data : []);
+      // 使用 Promise.allSettled 以便每个请求独立处理，互不影响
+      const [overviewRes, serversRes, imagesRes, networksRes] = await Promise.allSettled([
+        cloudService.getCloudOverview().catch(err => {
+          console.warn('获取云概览失败:', err);
+          return { data: null };
+        }),
+        cloudService.getServers().catch(err => {
+          console.warn('获取服务器列表失败:', err);
+          return { data: [] };
+        }),
+        cloudService.getImages().catch(err => {
+          console.warn('获取镜像列表失败:', err);
+          return { data: [] };
+        }),
+        cloudService.getNetworks().catch(err => {
+          console.warn('获取网络列表失败:', err);
+          return { data: [] };
+        })
+      ]);
 
-      // 获取虚拟机概览
+      // 设置数据，即使某些请求失败也继续
+      if (overviewRes.status === 'fulfilled' && overviewRes.value) {
+        setOverview(overviewRes.value);
+      }
+      if (serversRes.status === 'fulfilled' && serversRes.value) {
+        setServers(Array.isArray(serversRes.value) ? serversRes.value : []);
+      }
+      if (imagesRes.status === 'fulfilled' && imagesRes.value) {
+        setImages(Array.isArray(imagesRes.value) ? imagesRes.value : []);
+      }
+      if (networksRes.status === 'fulfilled' && networksRes.value) {
+        setNetworks(Array.isArray(networksRes.value) ? networksRes.value : []);
+      }
+
+      // 总是尝试获取虚拟机概览，不管其他API是否成功
       await fetchVMOverview();
     } catch (error) {
-      message.error('获取数据失败');
+      console.error('获取数据失败:', error);
+      message.error('部分数据加载失败');
+      // 即使出错也尝试加载VM数据
+      await fetchVMOverview();
     } finally {
       setLoading(false);
     }
@@ -71,12 +100,25 @@ const CloudResources = () => {
   const fetchVMOverview = async () => {
     try {
       const token = localStorage.getItem('access_token');
+      console.log('正在获取虚拟机概览数据...');
       const response = await axios.get('/api/information-systems/virtual_machines_overview/', {
         headers: { Authorization: `Bearer ${token}` }
       });
+      console.log('虚拟机概览数据:', response.data);
       setVmOverview(response.data);
     } catch (error) {
       console.error('获取虚拟机概览失败:', error);
+      console.error('错误详情:', error.response?.data || error.message);
+      message.error(`获取虚拟机数据失败: ${error.response?.data?.detail || error.message}`);
+      // 设置为空对象以避免无限loading
+      setVmOverview({
+        total_vms: 0,
+        status_stats: {},
+        datacenter_stats: {},
+        resource_totals: {},
+        tenant_stats: [],
+        virtual_machines: []
+      });
     }
   };
 

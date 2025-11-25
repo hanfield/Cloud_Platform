@@ -40,17 +40,12 @@ const { Content } = Layout;
 
 function App() {
   const [collapsed, setCollapsed] = useState(false);
-  const [isAuthenticated, setIsAuthenticated] = useState(false);
-  const [userType, setUserType] = useState('admin');
+  // 直接从 localStorage 初始化状态，避免刷新时短暂的未认证状态导致重定向
+  const [isAuthenticated, setIsAuthenticated] = useState(!!localStorage.getItem('access_token'));
+  const [userType, setUserType] = useState(localStorage.getItem('user_type') || 'admin');
 
   useEffect(() => {
-    const token = localStorage.getItem('access_token');
-    const storedUserType = localStorage.getItem('user_type') || 'admin';
-    setIsAuthenticated(!!token);
-    setUserType(storedUserType);
-  }, []);
-
-  useEffect(() => {
+    // 监听 storage 变化以处理多标签页同步
     const handleStorageChange = () => {
       const token = localStorage.getItem('access_token');
       const storedUserType = localStorage.getItem('user_type') || 'admin';

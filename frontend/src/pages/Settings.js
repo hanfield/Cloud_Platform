@@ -76,6 +76,7 @@ const Settings = () => {
 
   const fetchAllSettings = async () => {
     try {
+      // 获取通用设置
       const response = await fetch('/api/system/settings/', {
         headers: {
           'Authorization': `Bearer ${localStorage.getItem('access_token')}`
@@ -94,13 +95,73 @@ const Settings = () => {
           setDatabaseSettings(prev => ({ ...prev, ...data.database }));
           databaseForm.setFieldsValue(data.database);
         }
-        if (data.openstack && Object.keys(data.openstack).length > 0) {
-          setOpenstackSettings(prev => ({ ...prev, ...data.openstack }));
-          openstackForm.setFieldsValue(data.openstack);
-        }
         if (data.notification && Object.keys(data.notification).length > 0) {
           setNotificationSettings(prev => ({ ...prev, ...data.notification }));
           notificationForm.setFieldsValue(data.notification);
+        }
+
+        // 获取数据库真实配置（使用专用 API）
+        try {
+          const dbResponse = await fetch('/api/system/settings/database/config/', {
+            headers: {
+              'Authorization': `Bearer ${localStorage.getItem('access_token')}`
+            }
+          });
+
+          if (dbResponse.ok) {
+            const dbData = await dbResponse.json();
+            const config = dbData.config || {};
+
+            // 将后端配置格式转换为前端格式
+            const mappedDBConfig = {
+              dbType: (config.ENGINE || '').includes('postgresql') ? 'postgresql' :
+                (config.ENGINE || '').includes('mysql') ? 'mysql' : 'sqlite',
+              dbHost: config.HOST || '',
+              dbPort: config.PORT || 5432,
+              dbName: config.NAME || '',
+              dbUser: config.USER || '',
+              maxConnections: 100,  // 这些可以从配置中读取
+              connectionTimeout: 30
+            };
+
+            setDatabaseSettings(prev => ({ ...prev, ...mappedDBConfig }));
+            databaseForm.setFieldsValue(mappedDBConfig);
+          }
+        } catch (dbError) {
+          console.error('Failed to load database settings:', dbError);
+        }
+
+        // 获取 OpenStack 真实配置（使用专用 API）
+        try {
+          const openstackResponse = await fetch('/api/system/settings/openstack/config/', {
+            headers: {
+              'Authorization': `Bearer ${localStorage.getItem('access_token')}`
+            }
+          });
+
+          if (openstackResponse.ok) {
+            const openstackData = await openstackResponse.json();
+            const config = openstackData.config || {};
+
+            // 将后端配置格式转换为前端格式
+            const mappedConfig = {
+              authUrl: config.AUTH_URL || '',
+              username: config.USERNAME || '',
+              password: config.PASSWORD || '',  // 已掩码
+              projectName: config.PROJECT_NAME || '',
+              userDomain: config.USER_DOMAIN_NAME || '',
+              projectDomain: config.PROJECT_DOMAIN_NAME || '',
+              regionName: config.REGION_NAME || '',
+              enableSync: true,
+              // 优先使用保存的设置，否则默认为30秒
+              syncInterval: config.syncInterval || 30
+            };
+
+            setOpenstackSettings(prev => ({ ...prev, ...mappedConfig }));
+            openstackForm.setFieldsValue(mappedConfig);
+          }
+        } catch (openstackError) {
+          console.error('Failed to load OpenStack settings:', openstackError);
         }
       }
     } catch (error) {
@@ -153,7 +214,18 @@ const Settings = () => {
           'Content-Type': 'application/json',
           'Authorization': `Bearer ${localStorage.getItem('access_token')}`
         },
-        body: JSON.stringify({ category: 'database', settings: values })
+        body: JSON.stringify({
+          category: 'database',
+          settings: {
+            ENGINE: values.dbType === 'postgresql' ? 'django.db.backends.postgresql' :
+              values.dbType === 'mysql' ? 'django.db.backends.mysql' : 'django.db.backends.sqlite3',
+            NAME: values.dbName,
+            USER: values.dbUser,
+            PASSWORD: values.dbPassword, // 需要在表单中添加密码字段
+            HOST: values.dbHost,
+            PORT: values.dbPort
+          }
+        })
       });
 
       if (!response.ok) {
@@ -239,14 +311,31 @@ const Settings = () => {
 
   // 测试OpenStack连接
   const handleTestOpenstackConnection = async () => {
-    message.loading('正在测试连接...', 0);
+    const hide = message.loading('正在测试连接...', 0);
     try {
-      await new Promise(resolve => setTimeout(resolve, 2000));
-      message.destroy();
-      message.success('OpenStack连接测试成功！');
+      const response = await fetch('/api/system/settings/openstack/test/', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${localStorage.getItem('access_token')}`
+        }
+      });
+
+      hide();
+
+      if (response.ok) {
+        const data = await response.json();
+        message.success(`${data.message || 'OpenStack连接测试成功！'}`);
+        if (data.details) {
+          console.log('OpenStack 连接详情:', data.details);
+        }
+      } else {
+        const errorData = await response.json();
+        message.error(`连接测试失败: ${errorData.error || '未知错误'}`);
+      }
     } catch (error) {
-      message.destroy();
-      message.error('连接测试失败');
+      hide();
+      message.error(`连接测试失败: ${error.message}`);
     }
   };
 
@@ -406,6 +495,13 @@ const Settings = () => {
               </Form.Item>
 
               <Form.Item
+                label="数据库密码"
+                name="dbPassword"
+              >
+                <Input.Password placeholder="如果不修改请留空" />
+              </Form.Item>
+
+              <Form.Item
                 label="最大连接数"
                 name="maxConnections"
               >
@@ -519,10 +615,10 @@ const Settings = () => {
               </Form.Item>
 
               <Form.Item
-                label="同步间隔（分钟）"
+                label="同步间隔（秒）"
                 name="syncInterval"
               >
-                <InputNumber min={5} max={1440} style={{ width: '100%' }} />
+                <InputNumber min={5} max={3600} style={{ width: '100%' }} />
               </Form.Item>
 
               <Form.Item>
