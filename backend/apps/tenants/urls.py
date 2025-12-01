@@ -17,7 +17,17 @@ from .tenant_portal_views import (
     subscribe_product,
     create_virtual_machine,
     get_virtual_machine_detail,
-    delete_virtual_machine
+    create_virtual_machine,
+    get_virtual_machine_detail,
+    delete_virtual_machine,
+    get_availability_zones
+)
+from .admin_resource_management import (
+    admin_create_information_system,
+    admin_create_virtual_machine,
+    admin_start_virtual_machine,
+    admin_start_information_system,
+    get_all_tenants
 )
 
 router = DefaultRouter()
@@ -46,5 +56,14 @@ urlpatterns = [
     path('portal/subscribe-product/', subscribe_product, name='tenant-portal-subscribe-product'),
     path('portal/create-vm/', create_virtual_machine, name='tenant-portal-create-vm'),
     path('portal/vm/<uuid:vm_id>/', get_virtual_machine_detail, name='tenant-portal-vm-detail'),
+    path('portal/vm/<uuid:vm_id>/', get_virtual_machine_detail, name='tenant-portal-vm-detail'),
     path('portal/vm/<uuid:vm_id>/delete/', delete_virtual_machine, name='tenant-portal-delete-vm'),
+    path('portal/availability-zones/', get_availability_zones, name='tenant-portal-availability-zones'),
+
+    # 管理员资源管理API
+    path('admin/tenants/', get_all_tenants, name='admin-get-all-tenants'),
+    path('admin/create-system/', admin_create_information_system, name='admin-create-system'),
+    path('admin/create-vm/', admin_create_virtual_machine, name='admin-create-vm'),
+    path('admin/system/<uuid:system_id>/start/', admin_start_information_system, name='admin-start-system'),
+    path('admin/vm/<uuid:vm_id>/start/', admin_start_virtual_machine, name='admin-start-vm'),
 ]

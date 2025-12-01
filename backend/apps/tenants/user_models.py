@@ -80,3 +80,43 @@ class UserProfile(models.Model):
     def is_active(self):
         """是否已激活"""
         return self.status == self.UserStatus.ACTIVE and self.user.is_active
+
+
+# Signal to automatically create stakeholder when UserProfile is created
+from django.db.models.signals import post_save
+from django.dispatch import receiver
+from .models import Stakeholder
+import logging
+
+logger = logging.getLogger(__name__)
+
+
+@receiver(post_save, sender=UserProfile)
+def create_stakeholder_for_user(sender, instance, created, **kwargs):
+    """
+    Automatically create a stakeholder entry when a new tenant user is created
+    """
+    if created and instance.tenant and instance.user_type == UserProfile.UserType.TENANT:
+        try:
+            # Create stakeholder entry
+            stakeholder = Stakeholder.objects.create(
+                tenant=instance.tenant,
+                stakeholder_type='customer',  # Default to customer
+                name=instance.user.get_full_name() or instance.user.username,
+                phone_encrypted='',  # Will be set below
+                email_encrypted='',  # Will be set below
+                is_primary=False,
+                notes=f'Auto-created from user registration: {instance.user.username}'
+            )
+            
+            # Set encrypted fields using properties
+            if instance.phone:
+                stakeholder.phone = instance.phone
+            if instance.user.email:
+                stakeholder.email = instance.user.email
+            
+            stakeholder.save()
+            logger.info(f"Auto-created stakeholder for user {instance.user.username} in tenant {instance.tenant.name}")
+        except Exception as e:
+            # Log error but don't fail user creation
+            logger.error(f"Failed to create stakeholder for user {instance.user.username}: {e}")

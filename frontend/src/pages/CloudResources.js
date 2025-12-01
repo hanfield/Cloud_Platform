@@ -1,9 +1,12 @@
 import React, { useState, useEffect } from 'react';
-import { Card, Row, Col, Statistic, Tabs, Table, Button, message, Tag, Space, Spin } from 'antd';
-import { CloudOutlined, ReloadOutlined, DesktopOutlined, SyncOutlined, PlayCircleOutlined, StopOutlined } from '@ant-design/icons';
+import { Card, Row, Col, Statistic, Tabs, Table, Button, message, Tag, Space, Spin, Typography, Input, Switch, Dropdown, Menu } from 'antd';
+import { CloudOutlined, ReloadOutlined, DesktopOutlined, SyncOutlined, PlayCircleOutlined, StopOutlined, DatabaseOutlined, CloudServerOutlined, ThunderboltOutlined, SearchOutlined, CloudSyncOutlined, DownOutlined } from '@ant-design/icons';
 import { PieChart, Pie, Cell, ResponsiveContainer, Tooltip, Legend } from 'recharts';
 import cloudService from '../services/cloudService';
 import axios from 'axios';
+import AdminResourceCreate from '../components/AdminResourceCreate';
+
+const { Text } = Typography;
 
 const { TabPane } = Tabs;
 const COLORS = ['#0088FE', '#00C49F', '#FFBB28', '#FF8042'];
@@ -25,6 +28,13 @@ const CloudResources = () => {
   const [vmOverview, setVmOverview] = useState(null);
   const [autoRefresh, setAutoRefresh] = useState(false);
   const [lastUpdate, setLastUpdate] = useState(new Date());
+
+  // 管理员资源创建模态框状态
+  const [createModalVisible, setCreateModalVisible] = useState(false);
+  const [createType, setCreateType] = useState('system'); // 'system' or 'vm'
+
+  // 虚拟机搜索状态
+  const [vmSearchText, setVmSearchText] = useState('');
 
   useEffect(() => {
     fetchAllData();
@@ -126,6 +136,29 @@ const CloudResources = () => {
     { name: '运行中', value: overview.compute?.running_instances || 0 },
     { name: '已停止', value: overview.compute?.stopped_instances || 0 }
   ] : [];
+
+  // 手动触发OpenStack同步
+  const handleManualSync = async () => {
+    try {
+      setLoading(true);
+      message.loading({ content: '正在同步OpenStack数据...', key: 'syncMsg' });
+
+      const token = localStorage.getItem('access_token');
+      await axios.post('/api/information-systems/sync_openstack/', {}, {
+        headers: { Authorization: `Bearer ${token}` }
+      });
+
+      message.success({ content: '同步完成', key: 'syncMsg' });
+      // 同步完成后刷新数据
+      await fetchVMOverview();
+      await fetchAllData();
+    } catch (error) {
+      console.error('同步失败:', error);
+      message.error({ content: `同步失败: ${error.response?.data?.message || error.message}`, key: 'syncMsg' });
+    } finally {
+      setLoading(false);
+    }
+  };
 
   // 虚拟机状态饼图数据
   const getVMStatusPieData = () => {
@@ -234,6 +267,12 @@ const CloudResources = () => {
       )
     },
     {
+      title: '运行时长',
+      dataIndex: 'uptime',
+      key: 'uptime',
+      width: 120
+    },
+    {
       title: 'CPU',
       dataIndex: 'cpu_cores',
       key: 'cpu_cores',
@@ -291,6 +330,44 @@ const CloudResources = () => {
     { title: '存储总计', dataIndex: 'total_storage', key: 'total_storage', render: (disk) => `${disk}GB` }
   ];
 
+  // 虚拟机列表过滤
+  const getFilteredVMs = () => {
+    if (!vmOverview || !vmOverview.virtual_machines) return [];
+
+    const vms = vmOverview.virtual_machines;
+    if (!vmSearchText) return vms;
+
+    const searchLower = vmSearchText.toLowerCase();
+    return vms.filter(vm =>
+      (vm.name && vm.name.toLowerCase().includes(searchLower)) ||
+      (vm.tenant_name && vm.tenant_name.toLowerCase().includes(searchLower)) ||
+      (vm.system_name && vm.system_name.toLowerCase().includes(searchLower)) ||
+      (vm.ip_address && vm.ip_address.toLowerCase().includes(searchLower))
+    );
+  };
+
+  // 快捷操作
+  const quickActions = [
+    {
+      title: '为租户建系统',
+      icon: <DatabaseOutlined />,
+      color: '#722ed1',
+      onClick: () => {
+        setCreateType('system');
+        setCreateModalVisible(true);
+      }
+    },
+    {
+      title: '为租户建VM',
+      icon: <CloudServerOutlined />,
+      color: '#13c2c2',
+      onClick: () => {
+        setCreateType('vm');
+        setCreateModalVisible(true);
+      }
+    }
+  ];
+
   return (
     <div style={{ padding: '24px' }}>
       <Card
@@ -321,6 +398,43 @@ const CloudResources = () => {
             </Card>
           </>
         )}
+
+        {/* 快捷操作 */}
+        <Card
+          bordered={false}
+          title={
+            <Space>
+              <ThunderboltOutlined />
+              <span>快捷操作</span>
+            </Space>
+          }
+          style={{ marginBottom: 24 }}
+        >
+          <Row gutter={[16, 16]}>
+            {quickActions.map((action, index) => (
+              <Col xs={24} sm={12} md={6} key={index}>
+                <Card
+                  bordered={false}
+                  hoverable
+                  onClick={action.onClick}
+                  style={{
+                    textAlign: 'center',
+                    cursor: 'pointer',
+                    transition: 'all 0.3s',
+                    border: `1px solid ${action.color}20`,
+                  }}
+                  bodyStyle={{ padding: '24px 16px' }}
+                >
+                  <div style={{ fontSize: 32, color: action.color, marginBottom: 12 }}>
+                    {action.icon}
+                  </div>
+                  <Text strong style={{ fontSize: '14px' }}>{action.title}</Text>
+                </Card>
+              </Col>
+            ))}
+          </Row>
+        </Card>
+
         <Tabs>
           <TabPane tab={<span><DesktopOutlined /> 虚拟机管理</span>} key="vms">
             {vmOverview ? (
@@ -390,21 +504,35 @@ const CloudResources = () => {
                   title="虚拟机状态分布"
                   extra={
                     <Space>
-                      <Tag color={autoRefresh ? 'green' : 'default'}>
-                        {autoRefresh ? <SyncOutlined spin /> : <SyncOutlined />}
-                        {autoRefresh ? ' 自动刷新中' : ' 已暂停'}
-                      </Tag>
-                      <Button
-                        size="small"
-                        icon={autoRefresh ? <StopOutlined /> : <PlayCircleOutlined />}
-                        onClick={() => setAutoRefresh(!autoRefresh)}
+                      <Space style={{ marginRight: 16 }}>
+                        <Switch
+                          checked={autoRefresh}
+                          onChange={setAutoRefresh}
+                          checkedChildren="自动刷新"
+                          unCheckedChildren="自动刷新"
+                        />
+                      </Space>
+
+                      <Dropdown.Button
+                        type="primary"
+                        icon={<DownOutlined />}
+                        menu={{
+                          items: [
+                            {
+                              key: 'sync',
+                              label: '从 OpenStack 同步',
+                              icon: <CloudSyncOutlined />,
+                              onClick: handleManualSync
+                            }
+                          ]
+                        }}
+                        onClick={fetchVMOverview}
+                        loading={loading}
                       >
-                        {autoRefresh ? '暂停刷新' : '开启刷新'}
-                      </Button>
-                      <Button size="small" icon={<ReloadOutlined />} onClick={fetchVMOverview}>
-                        立即刷新
-                      </Button>
-                      <span style={{ fontSize: '12px', color: '#999' }}>
+                        <ReloadOutlined /> 立即刷新
+                      </Dropdown.Button>
+
+                      <span style={{ fontSize: '12px', color: '#999', marginLeft: 8 }}>
                         最后更新: {lastUpdate.toLocaleTimeString()}
                       </span>
                     </Space>
@@ -425,13 +553,25 @@ const CloudResources = () => {
                 </Card>
 
                 {/* 虚拟机列表 */}
-                <Card title="虚拟机列表（最近50台）">
+                <Card
+                  title="虚拟机列表（最近50台）"
+                  extra={
+                    <Input
+                      placeholder="搜索虚拟机名称、租户、系统或IP"
+                      prefix={<SearchOutlined />}
+                      value={vmSearchText}
+                      onChange={(e) => setVmSearchText(e.target.value)}
+                      allowClear
+                      style={{ width: 300 }}
+                    />
+                  }
+                >
                   <Table
-                    dataSource={vmOverview.virtual_machines || []}
+                    dataSource={getFilteredVMs()}
                     columns={vmColumns}
                     rowKey="id"
                     scroll={{ x: 1500 }}
-                    pagination={{ pageSize: 10 }}
+                    pagination={{ pageSize: 10, showTotal: (total) => `共 ${total} 台虚拟机` }}
                   />
                 </Card>
               </>
@@ -464,6 +604,16 @@ const CloudResources = () => {
           </TabPane>
         </Tabs>
       </Card>
+
+      <AdminResourceCreate
+        visible={createModalVisible}
+        type={createType}
+        onCancel={() => setCreateModalVisible(false)}
+        onSuccess={() => {
+          message.success('资源创建成功');
+          fetchAllData(); // Refresh data
+        }}
+      />
     </div>
   );
 };

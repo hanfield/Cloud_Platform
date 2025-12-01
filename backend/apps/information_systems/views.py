@@ -41,7 +41,9 @@ class InformationSystemViewSet(viewsets.ModelViewSet):
         return InformationSystemSerializer
 
     def perform_create(self, serializer):
-        """创建信息系统"""
+        """创建信息系统 - 管理员可为指定租户创建"""
+        # 管理员可以通过传递 tenant_id 为特定租户创建
+        # 租户用户则自动关联到自己的租户
         serializer.save(created_by=self.request.user)
 
     @action(detail=True, methods=['post'])
@@ -89,10 +91,55 @@ class InformationSystemViewSet(viewsets.ModelViewSet):
                 'message': f'启动失败: {str(e)}'
             }, status=status.HTTP_400_BAD_REQUEST)
 
+    @action(detail=False, methods=['post'])
+    def sync_openstack(self, request):
+        """手动触发OpenStack同步"""
+        # 只有管理员可以执行此操作
+        if not request.user.is_staff:
+            return Response({
+                'error': '只有管理员可以执行同步操作'
+            }, status=status.HTTP_403_FORBIDDEN)
+            
+        try:
+            from django.core.management import call_command
+            # 执行同步命令
+            call_command('sync_openstack_vms', cleanup_deleted=True)
+            
+            return Response({
+                'status': 'success',
+                'message': 'OpenStack同步已完成'
+            })
+        except Exception as e:
+            return Response({
+                'status': 'error',
+                'message': f'同步失败: {str(e)}'
+            }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
     @action(detail=True, methods=['post'])
     def stop(self, request, pk=None):
-        """停止信息系统"""
+        """停止信息系统 - 仅允许租户用户停止"""
         information_system = self.get_object()
+
+        # 权限检查：只有所属租户的用户可以停止
+        # 检查用户是否属于该信息系统的租户
+        try:
+            from ..tenants.user_models import UserProfile
+            profile = UserProfile.objects.filter(
+                user=request.user,
+                tenant=information_system.tenant,
+                status='active'
+            ).first()
+            
+            if not profile and not request.user.is_staff:
+                return Response({
+                    'status': 'error',
+                    'message': '权限不足：只有所属租户的用户可以停止信息系统'
+                }, status=status.HTTP_403_FORBIDDEN)
+        except Exception as e:
+            return Response({
+                'status': 'error',
+                'message': f'权限验证失败: {str(e)}'
+            }, status=status.HTTP_403_FORBIDDEN)
 
         try:
             # 调用OpenStack服务停止相关资源
@@ -133,6 +180,7 @@ class InformationSystemViewSet(viewsets.ModelViewSet):
                 'status': 'error',
                 'message': f'停止失败: {str(e)}'
             }, status=status.HTTP_400_BAD_REQUEST)
+
 
     @action(detail=True, methods=['post'])
     def maintenance(self, request, pk=None):
@@ -389,6 +437,20 @@ class InformationSystemViewSet(viewsets.ModelViewSet):
         recent_vms = all_vms.order_by('-created_at')[:50]
         vms_list = []
         for vm in recent_vms:
+            # Calculate uptime display
+            uptime_display = "未运行"
+            if vm.uptime:
+                total_seconds = int(vm.uptime.total_seconds())
+                days = total_seconds // 86400
+                hours = (total_seconds % 86400) // 3600
+                minutes = (total_seconds % 3600) // 60
+                if days > 0:
+                    uptime_display = f"{days}天{hours}小时{minutes}分钟"
+                elif hours > 0:
+                    uptime_display = f"{hours}小时{minutes}分钟"
+                else:
+                    uptime_display = f"{minutes}分钟"
+
             vms_list.append({
                 'id': str(vm.id),
                 'name': vm.name,
@@ -401,6 +463,7 @@ class InformationSystemViewSet(viewsets.ModelViewSet):
                 'disk_gb': vm.disk_gb,
                 'status': vm.status,
                 'status_display': vm.get_status_display(),
+                'uptime': uptime_display,
                 'data_center_type': vm.data_center_type,
                 'data_center_type_display': vm.get_data_center_type_display(),
                 'availability_zone': vm.availability_zone or '-',

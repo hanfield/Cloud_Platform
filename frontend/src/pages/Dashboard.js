@@ -5,7 +5,7 @@
 import React, { useState, useEffect } from 'react';
 import {
   Row, Col, Card, Statistic, Progress, Table, Tag, Timeline,
-  Button, Space, Typography, Divider, Alert
+  Button, Space, Typography, Divider, Alert, message
 } from 'antd';
 import {
   CloudServerOutlined, TeamOutlined, FileTextOutlined,
@@ -18,6 +18,8 @@ import tenantService from '../services/tenantService';
 import userService from '../services/userService';
 import contractService from '../services/contractService';
 
+import AdminResourceCreate from '../components/AdminResourceCreate';
+
 const { Title, Text, Paragraph } = Typography;
 
 const Dashboard = () => {
@@ -28,6 +30,10 @@ const Dashboard = () => {
     users: { total: 0, active: 0, pending: 0 },
     contracts: { total: 0, active: 0 }
   });
+
+  // 管理员资源创建模态框状态
+  const [createModalVisible, setCreateModalVisible] = useState(false);
+  const [createType, setCreateType] = useState('system'); // 'system' or 'vm'
 
   // 监控数据
   const [resources, setResources] = useState({
@@ -118,22 +124,28 @@ const Dashboard = () => {
       onClick: () => navigate('/tenants')
     },
     {
-      title: '用户管理',
-      icon: <TeamOutlined />,
-      color: '#52c41a',
-      onClick: () => navigate('/users')
+      title: '为租户建系统',
+      icon: <DatabaseOutlined />,
+      color: '#722ed1',
+      onClick: () => {
+        setCreateType('system');
+        setCreateModalVisible(true);
+      }
+    },
+    {
+      title: '为租户建VM',
+      icon: <CloudServerOutlined />,
+      color: '#13c2c2',
+      onClick: () => {
+        setCreateType('vm');
+        setCreateModalVisible(true);
+      }
     },
     {
       title: '合同管理',
       icon: <FileTextOutlined />,
       color: '#faad14',
       onClick: () => navigate('/contracts')
-    },
-    {
-      title: '云资源',
-      icon: <CloudServerOutlined />,
-      color: '#722ed1',
-      onClick: () => navigate('/cloud-resources')
     }
   ];
 
@@ -416,6 +428,16 @@ const Dashboard = () => {
           </Card>
         </Col>
       </Row>
+
+      <AdminResourceCreate
+        visible={createModalVisible}
+        type={createType}
+        onCancel={() => setCreateModalVisible(false)}
+        onSuccess={() => {
+          message.success('资源创建成功');
+          // 可以在这里刷新相关数据
+        }}
+      />
     </div>
   );
 };

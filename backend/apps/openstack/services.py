@@ -107,10 +107,31 @@ class OpenStackService:
                         'enabled': True
                     }
                 ]
-            projects = conn.identity.projects()
-            return [project.to_dict() for project in projects]
+            
+            projects = list(conn.identity.projects())
+            return [p.to_dict() for p in projects]
         except Exception as e:
-            logger.error(f"列出项目失败: {str(e)}")
+            logger.error(f"获取项目列表失败: {str(e)}")
+            return []
+
+    # ==================== 计算服务 ====================
+
+    def list_availability_zones(self) -> List[Dict[str, Any]]:
+        """获取可用区列表"""
+        try:
+            conn = self.get_connection()
+            if conn is None:
+                # 返回模拟数据
+                return [
+                    {'zoneName': 'nova', 'zoneState': {'available': True}, 'hosts': None},
+                    {'zoneName': 'zone-1', 'zoneState': {'available': True}, 'hosts': None}
+                ]
+            
+            # 使用 compute 服务获取可用区
+            zones = list(conn.compute.availability_zones())
+            return [z.to_dict() for z in zones]
+        except Exception as e:
+            logger.error(f"获取可用区列表失败: {str(e)}")
             return []
 
     def update_project(self, project_id: str, **kwargs) -> Dict[str, Any]:
@@ -284,8 +305,13 @@ class OpenStackService:
             flavor = conn.compute.get_flavor(flavor_id)
             return flavor.to_dict() if flavor else None
         except Exception as e:
+            # 如果flavor不存在，只记录debug级别日志，避免污染日志
+            if "could not be found" in str(e).lower() or "not found" in str(e).lower():
+                logger.debug(f"Flavor {flavor_id} 不存在")
+                return None
             logger.error(f"获取实例规格失败: {str(e)}")
             return None
+
 
     # ==================== 网络管理 ====================
 
@@ -402,6 +428,10 @@ class OpenStackService:
             return server_info
 
         except Exception as e:
+            # 如果服务器不存在，只记录debug级别日志，避免污染日志
+            if "could not be found" in str(e).lower() or "not found" in str(e).lower():
+                logger.debug(f"Server {server_id} 不存在或已被删除")
+                return None
             logger.error(f"获取服务器详细信息失败: {str(e)}")
             return None
 

@@ -44,6 +44,19 @@ app.conf.beat_schedule = {
         'schedule': 5.0,  # 每5秒执行
         'options': {'queue': 'monitoring'}
     },
+    # 从OpenStack同步虚拟机完整数据 - 每5分钟执行一次
+    'sync-openstack-vms-full': {
+        'task': 'sync_openstack_vms',
+        'schedule': crontab(minute='*/5'),  # 每5分钟执行
+        'options': {'queue': 'monitoring'}
+    },
+    # 清理旧日志 - 每周日凌晨3点执行
+    'cleanup-old-logs': {
+        'task': 'cleanup_old_logs',
+        'schedule': crontab(hour=3, minute=0, day_of_week=0),  # 每周日凌晨3点
+        'options': {'queue': 'maintenance'}
+    },
+
 }
 
 # Celery任务配置

@@ -193,7 +193,10 @@ const AppHeader = ({ collapsed, onToggle }) => {
           }}
         >
           <CloudOutlined style={{ fontSize: '24px', marginRight: 8 }} />
-          <span>{systemName}</span>
+          <span>
+            {systemName}
+            {user.user_type === 'admin' && <span style={{ fontSize: '14px', fontWeight: 400, marginLeft: 4, opacity: 0.8 }}>（管理门户）</span>}
+          </span>
         </div>
       </div>
 

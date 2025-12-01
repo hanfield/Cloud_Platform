@@ -36,6 +36,10 @@ export const createVirtualMachine = async (data) => {
   return request.post('/tenants/portal/create-vm/', data);
 };
 
+export const getAvailabilityZones = async () => {
+  return request.get('/tenants/portal/availability-zones/');
+};
+
 export default {
   getTenantProfile,
   getSystemsOverview,
@@ -45,5 +49,6 @@ export default {
   createInformationSystem,
   getAvailableProducts,
   subscribeProduct,
-  createVirtualMachine
+  createVirtualMachine,
+  getAvailabilityZones
 };

@@ -1,0 +1,44 @@
+# Core Django Framework (Python 3.7 compatible)
+Django==3.2.25  # LTS version, supports Python 3.7
+djangorestframework==3.14.0
+djangorestframework-simplejwt==5.2.2
+
+# CORS Support
+django-cors-headers==3.14.0  # Compatible with Django 3.2
+
+# Database
+psycopg2-binary==2.9.6
+
+# OpenStack Integration
+openstacksdk==1.5.0
+
+# Environment Configuration
+python-dotenv
+python-decouple==3.8
+
+# Filtering & Pagination
+django-filter==22.1  # Compatible with Django 3.2
+
+# Celery Task Queue
+celery==5.2.7  # Compatible with Python 3.7
+redis==4.5.5  # Compatible with Python 3.7
+
+# Image Processing
+Pillow==9.5.0
+
+# Date & Time Utilities
+python-dateutil==2.9.0.post0
+
+# Additional Utilities
+pytz==2023.3
+requests==2.31.0
+
+# Development & Testing (Optional)
+# django-debug-toolbar==3.8.1
+# pytest==7.3.1
+# pytest-django==4.5.2
+# factory-boy==3.2.1
+# faker==18.9.0
+
+# System Monitoring
+psutil==5.9.6

@@ -7,6 +7,8 @@ from rest_framework import serializers
 from django.contrib.auth.models import User
 from django.contrib.auth import authenticate
 from .user_models import UserProfile
+from apps.monitoring.models import ActivityLog
+import logging
 
 
 class CustomTokenObtainPairSerializer(TokenObtainPairSerializer):
@@ -57,7 +59,20 @@ class CustomTokenObtainPairSerializer(TokenObtainPairSerializer):
 
         # 用户存在且密码正确且is_active=True，调用父类方法获取token
         data = super().validate(attrs)
-
+        
+        # 记录登录活动
+        try:
+            ActivityLog.log_activity(
+                action_type='login',
+                description=f'用户 {self.user.username} 成功登录系统',
+                user=self.user,
+                ip_address=self.context.get('request').META.get('REMOTE_ADDR') if self.context.get('request') else None
+            )
+        except Exception as e:
+            # 日志记录失败不应该影响登录
+            logging.error(f'记录登录活动失败: {str(e)}')
+        
+        # 添加用户类型信息
         try:
             profile = self.user.profile
 

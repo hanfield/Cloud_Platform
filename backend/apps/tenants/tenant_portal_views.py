@@ -203,6 +203,20 @@ def tenant_systems_overview(request):
         
         systems_data = []
         for system in systems:
+            # Calculate running time display
+            running_time_display = "未运行"
+            if system.running_time:
+                total_seconds = int(system.running_time.total_seconds())
+                days = total_seconds // 86400
+                hours = (total_seconds % 86400) // 3600
+                minutes = (total_seconds % 3600) // 60
+                if days > 0:
+                    running_time_display = f"{days}天{hours}小时{minutes}分钟"
+                elif hours > 0:
+                    running_time_display = f"{hours}小时{minutes}分钟"
+                else:
+                    running_time_display = f"{minutes}分钟"
+
             systems_data.append({
                 'id': str(system.id),
                 'name': system.name,
@@ -212,6 +226,7 @@ def tenant_systems_overview(request):
                 'operation_mode': system.operation_mode,
                 'operation_mode_display': system.get_operation_mode_display(),
                 'description': system.description,
+                'running_time': running_time_display,
                 'created_at': system.created_at
             })
         
@@ -246,11 +261,26 @@ def tenant_orders(request):
             vms = system.virtual_machines.all()
             vm_resources = []
             for vm in vms:
+                # Calculate uptime display
+                uptime_display = "未运行"
+                if vm.uptime:
+                    total_seconds = int(vm.uptime.total_seconds())
+                    days = total_seconds // 86400
+                    hours = (total_seconds % 86400) // 3600
+                    minutes = (total_seconds % 3600) // 60
+                    if days > 0:
+                        uptime_display = f"{days}天{hours}小时{minutes}分钟"
+                    elif hours > 0:
+                        uptime_display = f"{hours}小时{minutes}分钟"
+                    else:
+                        uptime_display = f"{minutes}分钟"
+
                 vm_resources.append({
                     'id': str(vm.id),
                     'name': vm.name,
                     'ip': vm.ip_address or '未分配',
-                    'runtime': vm.runtime_display,
+                    'runtime': vm.runtime_display,  # Scheduled runtime
+                    'uptime': uptime_display,       # Actual running time
                     'status': vm.status,
                     'status_display': vm.get_status_display(),
                     'cpu': vm.cpu_cores,
@@ -327,32 +357,40 @@ def control_resource(request):
 
                     # 检查虚拟机是否有 OpenStack ID
                     if not vm.openstack_id:
+                        logger.warning(f"虚拟机 {vm.id} 未绑定 OpenStack 实例")
                         return Response({
                             'error': '虚拟机未绑定 OpenStack 实例，无法执行操作'
                         }, status=status.HTTP_400_BAD_REQUEST)
 
                     # 状态检查：验证当前状态是否允许执行该操作
                     current_status = vm.status
+                    logger.info(f"虚拟机 {vm.id} 当前状态: {current_status}, 请求操作: {action}")
+                    
                     if action == 'start':
                         if current_status == VirtualMachine.VMStatus.RUNNING:
+                            logger.warning(f"虚拟机 {vm.id} 已在运行，无需启动")
                             return Response({
                                 'error': '虚拟机已在运行状态，无需启动'
                             }, status=status.HTTP_400_BAD_REQUEST)
                         if current_status == VirtualMachine.VMStatus.ERROR:
+                            logger.warning(f"虚拟机 {vm.id} 处于错误状态")
                             return Response({
                                 'error': '虚拟机处于错误状态，无法启动，请联系管理员'
                             }, status=status.HTTP_400_BAD_REQUEST)
                     elif action == 'stop':
                         if current_status == VirtualMachine.VMStatus.STOPPED:
+                            logger.warning(f"虚拟机 {vm.id} 已停止，无需停止")
                             return Response({
                                 'error': '虚拟机已停止，无需再次停止'
                             }, status=status.HTTP_400_BAD_REQUEST)
                     elif action == 'restart':
                         if current_status == VirtualMachine.VMStatus.STOPPED:
+                            logger.warning(f"虚拟机 {vm.id} 已停止，无法重启")
                             return Response({
                                 'error': '虚拟机已停止，无法重启，请先启动'
                             }, status=status.HTTP_400_BAD_REQUEST)
                         if current_status == VirtualMachine.VMStatus.ERROR:
+                            logger.warning(f"虚拟机 {vm.id} 处于错误状态")
                             return Response({
                                 'error': '虚拟机处于错误状态，无法重启，请联系管理员'
                             }, status=status.HTTP_400_BAD_REQUEST)
@@ -399,7 +437,7 @@ def control_resource(request):
                         if operation_success:
                             vm.save()
 
-                        # 记录操作日志
+                        # 记录操作日志到VMOperationLog
                         VMOperationLog.objects.create(
                             virtual_machine=vm,
                             operation_type=action,
@@ -407,6 +445,25 @@ def control_resource(request):
                             operation_detail=operation_detail,
                             success=operation_success
                         )
+                        
+                        # 记录活动日志到ActivityLog（用于Dashboard显示）
+                        if operation_success:
+                            try:
+                                from apps.monitoring.models import ActivityLog
+                                action_desc = {
+                                    'start': '启动',
+                                    'stop': '停止',
+                                    'restart': '重启'
+                                }.get(action, action)
+                                
+                                ActivityLog.log_activity(
+                                    action_type='system',
+                                    description=f'{request.user.username} {action_desc}了虚拟机 {vm.name}',
+                                    user=request.user,
+                                    ip_address=request.META.get('REMOTE_ADDR')
+                                )
+                            except Exception as e:
+                                logger.warning(f'记录活动日志失败: {str(e)}')
 
                         if operation_success:
                             logger.info(f"虚拟机操作成功: {operation_detail}")
@@ -653,7 +710,7 @@ def create_virtual_machine(request):
         vm_name = data.get('name')
         cpu_cores = data.get('cpu_cores', 2)
         memory_gb = data.get('memory_gb', 4)
-        disk_gb = data.get('disk_gb', 100)
+        disk_gb = data.get('disk_gb', 20)
         os_type = data.get('os_type', 'Linux')
         os_version = data.get('os_version', '')
 
@@ -661,32 +718,70 @@ def create_virtual_machine(request):
         logger.info(f"查找合适的 flavor: CPU={cpu_cores}, Memory={memory_gb}GB, Disk={disk_gb}GB")
         flavor = find_suitable_flavor(cpu_cores, memory_gb, disk_gb)
         if not flavor:
+            # 获取所有 flavor 列表以便调试
+            try:
+                openstack_service = get_openstack_service()
+                all_flavors = openstack_service.list_flavors()
+                logger.error(f"可用 flavor 列表: {all_flavors}")
+            except:
+                pass
+                
             return Response({
                 'error': f'未找到合适的虚拟机规格 (CPU:{cpu_cores}核, 内存:{memory_gb}GB, 磁盘:{disk_gb}GB)'
             }, status=status.HTTP_400_BAD_REQUEST)
 
+        logger.info(f"找到 flavor: {flavor.get('name')} ({flavor.get('id')})")
+
         logger.info(f"查找合适的镜像: OS={os_type}, Version={os_version}")
         image = find_suitable_image(os_type, os_version)
         if not image:
+            # 获取所有镜像列表以便调试
+            try:
+                openstack_service = get_openstack_service()
+                all_images = openstack_service.list_images()
+                logger.error(f"可用镜像列表: {all_images}")
+            except:
+                pass
+
             return Response({
                 'error': f'未找到合适的操作系统镜像 ({os_type} {os_version})'
             }, status=status.HTTP_400_BAD_REQUEST)
+            
+        logger.info(f"找到镜像: {image.get('name')} ({image.get('id')})")
 
         # 获取网络配置
         logger.info(f"获取租户 {tenant.name} 的网络配置")
         network = get_default_network(tenant)
         if not network:
+            # 获取所有网络列表以便调试
+            try:
+                openstack_service = get_openstack_service()
+                all_networks = openstack_service.list_networks()
+                logger.error(f"可用网络列表: {all_networks}")
+            except:
+                pass
+
             return Response({
                 'error': '未找到可用网络，请联系管理员配置网络'
             }, status=status.HTTP_400_BAD_REQUEST)
+            
+        logger.info(f"找到网络: {network.get('name')} ({network.get('id')})")
 
-        # 先在数据库中创建虚拟机记录（状态为 STOPPED）
+        # 从 flavor 中获取实际分配的资源规格
+        actual_vcpus = flavor.get('vcpus', cpu_cores)
+        actual_ram_mb = flavor.get('ram', memory_gb * 1024)
+        actual_ram_gb = actual_ram_mb / 1024  # 转换为 GB
+        actual_disk = flavor.get('disk', disk_gb)
+        
+        logger.info(f"实际分配资源: CPU={actual_vcpus}核, 内存={actual_ram_gb}GB, 磁盘={actual_disk}GB")
+
+        # 在数据库中创建虚拟机记录，使用 OpenStack flavor 的实际规格
         vm = VirtualMachine.objects.create(
             information_system=system,
             name=vm_name,
-            cpu_cores=cpu_cores,
-            memory_gb=memory_gb,
-            disk_gb=disk_gb,
+            cpu_cores=actual_vcpus,  # 使用实际分配的值
+            memory_gb=int(actual_ram_gb),  # 使用实际分配的值
+            disk_gb=actual_disk,  # 使用实际分配的值
             data_center_type=data.get('data_center_type', 'production'),
             availability_zone=data.get('availability_zone', ''),
             region=data.get('region', ''),
@@ -707,13 +802,21 @@ def create_virtual_machine(request):
 
         try:
             openstack_service = get_openstack_service()
-            server = openstack_service.create_server(
-                name=vm_name,
-                image_id=image.get('id'),
-                flavor_id=flavor.get('id'),
-                network_ids=[network.get('id')],
-                availability_zone=data.get('availability_zone') or None
-            )
+            
+            # 构建创建参数
+            server_kwargs = {
+                'name': vm_name,
+                'image_id': image.get('id'),
+                'flavor_id': flavor.get('id'),
+                'network_ids': [network.get('id')],
+            }
+            
+            # 只有当 availability_zone 有值时才传递
+            az = data.get('availability_zone')
+            if az:
+                server_kwargs['availability_zone'] = az
+                
+            server = openstack_service.create_server(**server_kwargs)
 
             # 更新虚拟机的 OpenStack ID 和网络信息
             vm.openstack_id = server.get('id')
@@ -749,6 +852,18 @@ def create_virtual_machine(request):
                 operation_detail=f'在 OpenStack 中创建虚拟机 {vm.name}，实例ID: {vm.openstack_id}',
                 success=True
             )
+            
+            # 记录活动日志（用于Dashboard显示）
+            try:
+                from apps.monitoring.models import ActivityLog
+                ActivityLog.log_activity(
+                    action_type='create',
+                    description=f'{request.user.username} 创建了虚拟机 {vm.name}',
+                    user=request.user,
+                    ip_address=request.META.get('REMOTE_ADDR')
+                )
+            except Exception as e:
+                logger.warning(f'记录活动日志失败: {str(e)}')
 
             logger.info(f"虚拟机创建成功: {vm.name} (OpenStack ID: {vm.openstack_id})")
 
@@ -871,78 +986,58 @@ def get_virtual_machine_detail(request, vm_id):
 @api_view(['DELETE'])
 @permission_classes([IsAuthenticated])
 def delete_virtual_machine(request, vm_id):
-    """删除虚拟机 - 通过 OpenStack API"""
+    """删除虚拟机"""
     try:
-        tenant = get_user_tenant(request.user)
-        if not tenant:
-            return Response({'error': '未找到租户信息'}, status=status.HTTP_404_NOT_FOUND)
-
-        # 获取虚拟机并验证权限
-        try:
-            vm = VirtualMachine.objects.get(id=vm_id)
-            if vm.information_system.tenant != tenant:
-                return Response({'error': '无权删除此虚拟机'}, status=status.HTTP_403_FORBIDDEN)
-        except VirtualMachine.DoesNotExist:
-            return Response({'error': '虚拟机不存在'}, status=status.HTTP_404_NOT_FOUND)
-
+        # 获取虚拟机
+        vm = get_object_or_404(VirtualMachine, id=vm_id)
+        
+        # 检查权限
+        if not request.user.profile.is_admin:
+            # 租户用户只能删除自己租户的虚拟机
+            if vm.information_system.tenant != request.user.profile.tenant:
+                return Response({'error': '无权操作此虚拟机'}, status=status.HTTP_403_FORBIDDEN)
+        
         vm_name = vm.name
         openstack_id = vm.openstack_id
-
-        # 如果有 OpenStack ID，先从 OpenStack 删除
-        if openstack_id:
-            try:
-                openstack_service = get_openstack_service()
+        
+        # 调用OpenStack删除
+        try:
+            openstack_service = get_openstack_service()
+            if openstack_id:
                 success = openstack_service.delete_server(openstack_id)
-
                 if not success:
                     logger.warning(f"从 OpenStack 删除虚拟机失败: {vm_name} ({openstack_id})")
-                    # 记录失败日志
-                    VMOperationLog.objects.create(
-                        virtual_machine=vm,
-                        operation_type='delete',
-                        operator=request.user,
-                        operation_detail=f'从 OpenStack 删除虚拟机失败',
-                        success=False
-                    )
-                    return Response({
-                        'error': f'从 OpenStack 删除虚拟机失败'
-                    }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
-
-                logger.info(f"从 OpenStack 删除虚拟机成功: {vm_name} ({openstack_id})")
-
-            except Exception as openstack_error:
-                logger.error(f"OpenStack 删除虚拟机失败: {str(openstack_error)}")
-                # 记录失败日志
-                VMOperationLog.objects.create(
-                    virtual_machine=vm,
-                    operation_type='delete',
-                    operator=request.user,
-                    operation_detail=f'OpenStack 删除虚拟机异常: {str(openstack_error)}',
-                    success=False
-                )
-                return Response({
-                    'error': f'删除虚拟机失败: {str(openstack_error)}'
-                }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
-
-        # 记录删除日志
+        except Exception as e:
+            logger.error(f"OpenStack删除虚拟机失败: {str(e)}")
+            # 继续删除本地记录
+            
+        # 记录操作日志
         VMOperationLog.objects.create(
             virtual_machine=vm,
             operation_type='delete',
             operator=request.user,
-            operation_detail=f'删除虚拟机 {vm_name}' + (f'，OpenStack ID: {openstack_id}' if openstack_id else ''),
-            success=True
+            description=f"删除虚拟机: {vm_name}",
+            status='success'
         )
-
-        # 从数据库删除虚拟机
+        
+        # 删除本地记录
         vm.delete()
-
-        logger.info(f"虚拟机删除成功: {vm_name}")
-
-        return Response({
-            'success': True,
-            'message': f'虚拟机 {vm_name} 已删除'
-        }, status=status.HTTP_200_OK)
-
+        
+        return Response({'success': True, 'message': '虚拟机删除成功'})
+        
     except Exception as e:
-        logger.error(f"删除虚拟机失败: {str(e)}", exc_info=True)
+        logger.error(f"删除虚拟机失败: {str(e)}")
+        return Response({'error': str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+
+@api_view(['GET'])
+@permission_classes([IsAuthenticated])
+def get_availability_zones(request):
+    """获取可用区列表"""
+    try:
+        openstack_service = get_openstack_service()
+        zones = openstack_service.list_availability_zones()
+        return Response({'success': True, 'zones': zones})
+    except Exception as e:
+        logger.error(f"获取可用区列表失败: {str(e)}")
         return Response({'error': str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)

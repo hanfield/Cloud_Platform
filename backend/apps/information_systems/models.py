@@ -700,11 +700,12 @@ class VirtualMachine(models.Model):
 
     @property
     def uptime(self):
-        """计算已运行时间"""
+        """计算虚拟机运行时长"""
         if self.status == self.VMStatus.RUNNING and self.last_start_time:
             from django.utils import timezone
             return timezone.now() - self.last_start_time
         return None
+
 
 
 class VMOperationLog(models.Model):

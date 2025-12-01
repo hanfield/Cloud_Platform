@@ -14,10 +14,14 @@ class SystemSettingsViewSet(viewsets.ViewSet):
     
     def get_permissions(self):
         """
-        读取操作允许所有认证用户
+        list操作允许所有用户（包括未认证）- 用于登录页显示平台名称
+        其他读取操作只允许认证用户
         写入操作只允许管理员
         """
-        if self.action in ['list', 'category', 'openstack_config']:
+        if self.action == 'list':
+            # 登录页需要获取平台名称，不需要认证
+            permission_classes = []
+        elif self.action in ['category', 'openstack_config']:
             permission_classes = [IsAuthenticated]
         else:
             permission_classes = [IsAdminUser]

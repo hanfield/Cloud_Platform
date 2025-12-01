@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { Card, Row, Col, Table, Button, Space, Tag, Descriptions, message, Modal, Form, Input, Select, Statistic, Divider, InputNumber, TimePicker, Progress } from 'antd';
-import { UserOutlined, DesktopOutlined, ShoppingOutlined, PlusOutlined, PoweroffOutlined, PlayCircleOutlined, StopOutlined, TeamOutlined, EyeOutlined, SyncOutlined, ReloadOutlined } from '@ant-design/icons';
+import { UserOutlined, DesktopOutlined, ShoppingOutlined, PlusOutlined, PoweroffOutlined, PlayCircleOutlined, StopOutlined, TeamOutlined, EyeOutlined, SyncOutlined, ReloadOutlined, ThunderboltOutlined, DatabaseOutlined, CloudServerOutlined } from '@ant-design/icons';
 import { useLocation, useNavigate } from 'react-router-dom';
 import { PieChart, Pie, Cell, Tooltip, Legend, ResponsiveContainer } from 'recharts';
 import tenantPortalService from '../services/tenantPortalService';
@@ -20,6 +20,7 @@ const TenantPortal = () => {
   const [productModalVisible, setProductModalVisible] = useState(false);
   const [vmModalVisible, setVmModalVisible] = useState(false);
   const [selectedSystemId, setSelectedSystemId] = useState(null);
+  const [availabilityZones, setAvailabilityZones] = useState([]);
   const [form] = Form.useForm();
   const [productForm] = Form.useForm();
   const [vmForm] = Form.useForm();
@@ -136,7 +137,7 @@ const TenantPortal = () => {
       // 处理时间字段
       const vmData = {
         ...values,
-        system_id: selectedSystemId,
+        system_id: values.system_id || selectedSystemId,
         runtime_start: values.runtime_start ? values.runtime_start.format('HH:mm') : null,
         runtime_end: values.runtime_end ? values.runtime_end.format('HH:mm') : null,
       };
@@ -152,9 +153,18 @@ const TenantPortal = () => {
     }
   };
 
-  const openCreateVMModal = (systemId) => {
+  const openCreateVMModal = async (systemId) => {
     setSelectedSystemId(systemId);
     setVmModalVisible(true);
+
+    // 获取可用区列表
+    try {
+      const response = await tenantPortalService.getAvailabilityZones();
+      setAvailabilityZones(response.zones || []);
+    } catch (error) {
+      console.error('获取可用区失败:', error);
+      message.warning('获取可用区列表失败，请手动输入');
+    }
   };
 
   // 计算虚拟机状态统计
@@ -352,6 +362,66 @@ const TenantPortal = () => {
           </Col>
         </Row>
 
+        {/* 快捷操作 */}
+        <Card
+          bordered={false}
+          title={
+            <Space>
+              <ThunderboltOutlined />
+              <span>快捷操作</span>
+            </Space>
+          }
+          style={{ marginBottom: 24, marginTop: 24 }}
+        >
+          <Row gutter={[16, 16]}>
+            <Col xs={24} sm={12} md={6}>
+              <Card
+                bordered={false}
+                hoverable
+                onClick={() => setSystemModalVisible(true)}
+                style={{
+                  textAlign: 'center',
+                  cursor: 'pointer',
+                  transition: 'all 0.3s',
+                  border: '1px solid #722ed120',
+                }}
+                bodyStyle={{ padding: '24px 16px' }}
+              >
+                <div style={{ fontSize: 32, color: '#722ed1', marginBottom: 12 }}>
+                  <DatabaseOutlined />
+                </div>
+                <span style={{ fontWeight: 500 }}>创建信息系统</span>
+              </Card>
+            </Col>
+            <Col xs={24} sm={12} md={6}>
+              <Card
+                bordered={false}
+                hoverable
+                onClick={() => {
+                  if (systems.length === 0) {
+                    message.warning('请先创建信息系统');
+                    return;
+                  }
+                  openCreateVMModal(null);
+                }}
+                style={{
+                  textAlign: 'center',
+                  cursor: 'pointer',
+                  transition: 'all 0.3s',
+                  border: '1px solid #13c2c220',
+                  marginTop: 0, // Added margin top as per instruction
+                }}
+                bodyStyle={{ padding: '24px 16px' }}
+              >
+                <div style={{ fontSize: 32, color: '#13c2c2', marginBottom: 12 }}>
+                  <CloudServerOutlined />
+                </div>
+                <span style={{ fontWeight: 500 }}>创建虚拟机</span>
+              </Card>
+            </Col>
+          </Row>
+        </Card>
+
         <Divider />
 
         {/* 租户信息概要 */}
@@ -376,6 +446,7 @@ const TenantPortal = () => {
               { title: '系统名称', dataIndex: 'name', key: 'name' },
               { title: '系统编码', dataIndex: 'code', key: 'code' },
               { title: '运行模式', dataIndex: 'operation_mode_display', key: 'operation_mode' },
+              { title: '运行时长', dataIndex: 'running_time', key: 'running_time' },
               {
                 title: '状态', dataIndex: 'status_display', key: 'status', render: (text, record) => (
                   <Tag color={record.status === 'running' ? 'green' : 'default'}>{text}</Tag>
@@ -393,7 +464,7 @@ const TenantPortal = () => {
     { title: 'IP地址', dataIndex: 'ip', key: 'ip' },
     { title: '数据中心', dataIndex: 'data_center_type_display', key: 'data_center_type' },
     { title: '可用区', dataIndex: 'availability_zone', key: 'availability_zone' },
-    { title: '运行时间', dataIndex: 'runtime', key: 'runtime' },
+    { title: '运行时长', dataIndex: 'uptime', key: 'uptime' },
     { title: '操作系统', dataIndex: 'os_type', key: 'os_type' },
     { title: '状态', dataIndex: 'status', key: 'status', render: (status, record) => <Tag color={status === 'running' ? 'green' : 'red'}>{record.status_display}</Tag> },
     { title: 'CPU', dataIndex: 'cpu', key: 'cpu', render: (cpu) => `${cpu}核` },
@@ -607,10 +678,24 @@ const TenantPortal = () => {
         onOk={handleCreateVM}
         onCancel={() => { setVmModalVisible(false); vmForm.resetFields(); setSelectedSystemId(null); }}
         width={600}
+        destroyOnClose
       >
         <Form form={vmForm} layout="vertical">
           <Form.Item name="name" label="虚拟机名称" rules={[{ required: true, message: '请输入虚拟机名称' }]}>
             <Input placeholder="例如: Web-Server-01" />
+          </Form.Item>
+
+          <Form.Item
+            name="system_id"
+            label="所属信息系统"
+            initialValue={selectedSystemId}
+            rules={[{ required: true, message: '请选择所属信息系统' }]}
+          >
+            <Select placeholder="请选择信息系统" disabled={!!selectedSystemId}>
+              {systems.map(sys => (
+                <Option key={sys.id} value={sys.id}>{sys.name}</Option>
+              ))}
+            </Select>
           </Form.Item>
 
           <Row gutter={16}>
@@ -664,7 +749,11 @@ const TenantPortal = () => {
             </Col>
             <Col span={12}>
               <Form.Item name="availability_zone" label="可用区">
-                <Input placeholder="例如: az1" />
+                <Select placeholder="请选择可用区" allowClear>
+                  {availabilityZones.map(zone => (
+                    <Option key={zone.name} value={zone.name}>{zone.name}</Option>
+                  ))}
+                </Select>
               </Form.Item>
             </Col>
           </Row>

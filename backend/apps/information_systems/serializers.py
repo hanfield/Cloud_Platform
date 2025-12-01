@@ -7,7 +7,9 @@ from .models import (
     InformationSystem,
     SystemResource,
     SystemOperationLog,
-    SystemBillingRecord
+    SystemBillingRecord,
+    VirtualMachine,
+    VMOperationLog
 )
 from apps.tenants.models import Tenant
 
@@ -18,6 +20,7 @@ class InformationSystemSerializer(serializers.ModelSerializer):
     tenant_name = serializers.CharField(source='tenant.name', read_only=True)
     created_by_name = serializers.CharField(source='created_by.username', read_only=True)
     running_time = serializers.SerializerMethodField()
+    running_time_display = serializers.SerializerMethodField()
     monthly_cost = serializers.SerializerMethodField()
 
     class Meta:
@@ -27,13 +30,35 @@ class InformationSystemSerializer(serializers.ModelSerializer):
             'tenant', 'tenant_name', 'service_content', 'product_content',
             'total_cpu', 'total_memory', 'total_storage',
             'created_at', 'updated_at', 'last_start_time', 'last_stop_time',
-            'created_by', 'created_by_name', 'running_time', 'monthly_cost'
+            'created_by', 'created_by_name', 'running_time', 'running_time_display', 'monthly_cost'
         ]
         read_only_fields = ['created_at', 'updated_at', 'created_by']
 
     def get_running_time(self, obj):
-        """获取运行时间"""
-        return obj.running_time
+        """获取运行时间（总秒数）"""
+        runtime = obj.running_time
+        if runtime:
+            return int(runtime.total_seconds())
+        return 0
+
+    def get_running_time_display(self, obj):
+        """格式化运行时间显示"""
+        runtime = obj.running_time
+        if runtime:
+            total_seconds = int(runtime.total_seconds())
+            days = total_seconds // 86400
+            hours = (total_seconds % 86400) // 3600
+            minutes = (total_seconds % 3600) // 60
+
+            if days > 0:
+                return f"{days}天{hours}小时{minutes}分钟"
+            elif hours > 0:
+                return f"{hours}小时{minutes}分钟"
+            elif minutes > 0:
+                return f"{minutes}分钟"
+            else:
+                return "少于1分钟"
+        return "未运行"
 
     def get_monthly_cost(self, obj):
         """获取月费用"""
@@ -215,3 +240,71 @@ class SystemResourceSummarySerializer(serializers.Serializer):
     total_cpu = serializers.IntegerField()
     total_memory = serializers.IntegerField()
     total_storage = serializers.IntegerField()
+
+
+class VirtualMachineSerializer(serializers.ModelSerializer):
+    """虚拟机序列化器"""
+
+    information_system_name = serializers.CharField(source='information_system.name', read_only=True)
+    tenant_name = serializers.CharField(source='information_system.tenant.name', read_only=True)
+    created_by_name = serializers.CharField(source='created_by.username', read_only=True)
+    status_display = serializers.CharField(source='get_status_display', read_only=True)
+    data_center_type_display = serializers.CharField(source='get_data_center_type_display', read_only=True)
+    uptime = serializers.SerializerMethodField()
+    uptime_display = serializers.SerializerMethodField()
+
+    class Meta:
+        model = VirtualMachine
+        fields = [
+            'id', 'name', 'information_system', 'information_system_name', 'tenant_name',
+            'data_center_type', 'data_center_type_display', 'availability_zone', 'region',
+            'cpu_cores', 'memory_gb', 'disk_gb', 'ip_address', 'mac_address',
+            'status', 'status_display', 'runtime_start', 'runtime_end',
+            'openstack_id', 'os_type', 'os_version', 'description',
+            'created_at', 'updated_at', 'last_start_time', 'last_stop_time',
+            'created_by', 'created_by_name', 'uptime', 'uptime_display'
+        ]
+        read_only_fields = ['created_at', 'updated_at', 'created_by']
+
+    def get_uptime(self, obj):
+        """获取已运行时间（总秒数）"""
+        uptime = obj.uptime
+        if uptime:
+            return int(uptime.total_seconds())
+        return 0
+
+    def get_uptime_display(self, obj):
+        """格式化已运行时间显示"""
+        uptime = obj.uptime
+        if uptime:
+            total_seconds = int(uptime.total_seconds())
+            days = total_seconds // 86400
+            hours = (total_seconds % 86400) // 3600
+            minutes = (total_seconds % 3600) // 60
+
+            if days > 0:
+                return f"{days}天{hours}小时{minutes}分钟"
+            elif hours > 0:
+                return f"{hours}小时{minutes}分钟"
+            elif minutes > 0:
+                return f"{minutes}分钟"
+            else:
+                return "少于1分钟"
+        return "未运行"
+
+
+class VMOperationLogSerializer(serializers.ModelSerializer):
+    """虚拟机操作日志序列化器"""
+
+    virtual_machine_name = serializers.CharField(source='virtual_machine.name', read_only=True)
+    operator_name = serializers.CharField(source='operator.username', read_only=True)
+    operation_type_display = serializers.CharField(source='get_operation_type_display', read_only=True)
+
+    class Meta:
+        model = VMOperationLog
+        fields = [
+            'id', 'virtual_machine', 'virtual_machine_name',
+            'operation_type', 'operation_type_display', 'operation_detail',
+            'operator', 'operator_name', 'operation_time', 'success', 'error_message'
+        ]
+        read_only_fields = ['operation_time']

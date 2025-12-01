@@ -7,7 +7,7 @@ import axios from 'axios';
 // 创建axios实例
 const api = axios.create({
   baseURL: '/api',
-  timeout: 60000,  // 增加到60秒以处理OpenStack慢响应
+  timeout: 30000,
   headers: {
     'Content-Type': 'application/json'
   }

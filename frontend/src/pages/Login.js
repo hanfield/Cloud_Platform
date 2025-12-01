@@ -1,8 +1,4 @@
-/**
- * 登录页面
- */
-
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { Form, Input, Button, Card, message, Space, Tabs } from 'antd';
 import { UserOutlined, LockOutlined, CloudOutlined, TeamOutlined, SettingOutlined } from '@ant-design/icons';
 import { useNavigate } from 'react-router-dom';
@@ -13,7 +9,28 @@ const { TabPane } = Tabs;
 const Login = () => {
   const [loading, setLoading] = useState(false);
   const [userType, setUserType] = useState('admin');
+  const [platformName, setPlatformName] = useState('云平台管理系统');
   const navigate = useNavigate();
+
+  // 获取系统设置（平台名称）
+  useEffect(() => {
+    const fetchSystemSettings = async () => {
+      try {
+        const response = await api.get('/system/settings/');
+        if (response && response.length > 0) {
+          const settings = response[0];
+          if (settings.platform_name) {
+            setPlatformName(settings.platform_name);
+          }
+        }
+      } catch (error) {
+        // 获取失败时使用默认值，不影响用户体验
+        console.log('获取系统设置失败，使用默认值', error);
+      }
+    };
+
+    fetchSystemSettings();
+  }, []);
 
   const handleLogin = async (values) => {
     setLoading(true);
@@ -78,7 +95,7 @@ const Login = () => {
         <div style={{ textAlign: 'center', marginBottom: 32 }}>
           <CloudOutlined style={{ fontSize: '48px', color: '#1668dc', marginBottom: 16 }} />
           <div style={{ fontSize: '24px', fontWeight: 600, color: '#1f1f1f', marginBottom: 8 }}>
-            云平台管理系统
+            {platformName}
           </div>
           <div style={{ fontSize: '14px', color: '#8c8c8c' }}>
             Enterprise Cloud Management Platform
@@ -148,18 +165,6 @@ const Login = () => {
             </Button>
           </Form.Item>
         </Form>
-
-        <div style={{
-          textAlign: 'center',
-          padding: '12px',
-          background: '#f5f5f5',
-          borderRadius: 6,
-          marginBottom: 16,
-          fontSize: '12px',
-          color: '#595959'
-        }}>
-          {userType === 'admin' ? '管理员账号: admin / admin123' : '租户账号: tenant / tenant123'}
-        </div>
 
         <div style={{ textAlign: 'center' }}>
           <Button type="link" onClick={() => navigate('/forgot-password')}>
