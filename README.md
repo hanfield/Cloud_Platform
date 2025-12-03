@@ -112,6 +112,27 @@ python manage.py migrate
 # 创建超级用户
 python manage.py createsuperuser
 
+# ⚠️ 重要：修复管理员登录权限
+# 默认创建的超级用户缺少UserProfile配置，无法直接登录。
+# 请运行以下命令修复权限（将 'admin' 替换为您的用户名）：
+python manage.py shell -c "
+from django.contrib.auth.models import User
+from apps.tenants.user_models import UserProfile
+try:
+    user = User.objects.get(username='admin')
+    UserProfile.objects.update_or_create(
+        user=user,
+        defaults={
+            'user_type': 'admin', 
+            'status': 'active',
+            'position': '系统管理员'
+        }
+    )
+    print('✅ 管理员权限修复成功！')
+except User.DoesNotExist:
+    print('❌ 用户不存在，请先运行 createsuperuser')
+"
+
 # 启动开发服务器
 python manage.py runserver
 ```
@@ -156,6 +177,25 @@ OPENSTACK_DOMAIN_NAME=Default
 ```
 
 ## 📝 更新日志
+
+### v1.6.0 (2025-12-03)
+
+#### ☁️ OpenStack真实数据集成
+- ✅ **100%真实数据展示**
+  - 所有云资源数据均来自OpenStack真实API调用
+  - 虚拟机列表、状态、配置信息实时同步自OpenStack
+  - 镜像和快照管理展示真实OpenStack镜像数据（qcow2格式等）
+  - 网络资源信息直接从OpenStack网络服务获取
+- ✅ **OpenStack SDK集成**
+  - 使用官方 `openstacksdk` 进行所有资源操作
+  - 支持完整的认证流程（Keystone v3 API）
+  - 自动连接管理和异常处理
+  - 详细的操作日志记录
+- ✅ **数据验证**
+  - 确认所有展示的快照、虚拟机、网络数据来源真实
+  - 系统已在生产OpenStack环境中验证
+
+---
 
 ### v1.5.0 (2025-12-01)
 
