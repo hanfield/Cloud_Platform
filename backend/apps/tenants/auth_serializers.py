@@ -62,11 +62,16 @@ class CustomTokenObtainPairSerializer(TokenObtainPairSerializer):
         
         # 记录登录活动
         try:
+            request = self.context.get('request')
             ActivityLog.log_activity(
                 action_type='login',
                 description=f'用户 {self.user.username} 成功登录系统',
                 user=self.user,
-                ip_address=self.context.get('request').META.get('REMOTE_ADDR') if self.context.get('request') else None
+                ip_address=request.META.get('REMOTE_ADDR') if request else None,
+                user_agent=request.META.get('HTTP_USER_AGENT', '')[:500] if request else None,
+                request_path=request.path if request else None,
+                request_method=request.method if request else None,
+                resource_type='other'
             )
         except Exception as e:
             # 日志记录失败不应该影响登录
