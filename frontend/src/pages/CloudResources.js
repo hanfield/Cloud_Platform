@@ -287,9 +287,11 @@ const CloudResources = () => {
   const fetchAlerts = async () => {
     setAlertsLoading(true);
     try {
+      const token = localStorage.getItem('access_token');
+      const headers = { Authorization: `Bearer ${token}` };
       const [rulesRes, historyRes] = await Promise.all([
-        axios.get('/api/monitoring/alert-rules/'),
-        axios.get('/api/monitoring/alert-history/')
+        axios.get('/api/monitoring/alert-rules/', { headers }),
+        axios.get('/api/monitoring/alert-history/', { headers })
       ]);
       setAlertRules(rulesRes.data || []);
       setAlertHistory(historyRes.data || []);
@@ -304,7 +306,10 @@ const CloudResources = () => {
   const handleCreateAlertRule = async () => {
     try {
       const values = await alertRuleForm.validateFields();
-      await axios.post('/api/monitoring/alert-rules/', values);
+      const token = localStorage.getItem('access_token');
+      await axios.post('/api/monitoring/alert-rules/', values, {
+        headers: { Authorization: `Bearer ${token}` }
+      });
       message.success('告警规则创建成功');
       setAlertRuleModalVisible(false);
       alertRuleForm.resetFields();
@@ -316,7 +321,10 @@ const CloudResources = () => {
 
   const handleDeleteAlertRule = async (ruleId) => {
     try {
-      await axios.delete(`/api/monitoring/alert-rules/${ruleId}/`);
+      const token = localStorage.getItem('access_token');
+      await axios.delete(`/api/monitoring/alert-rules/${ruleId}/`, {
+        headers: { Authorization: `Bearer ${token}` }
+      });
       message.success('告警规则删除成功');
       fetchAlerts();
     } catch (error) {
@@ -335,7 +343,10 @@ const CloudResources = () => {
       if (filters.start_date) params.append('created_at__gte', filters.start_date);
       if (filters.end_date) params.append('created_at__lte', filters.end_date);
 
-      const response = await axios.get(`/api/monitoring/activities/?${params.toString()}&limit=100`);
+      const token = localStorage.getItem('access_token');
+      const response = await axios.get(`/api/monitoring/activities/?${params.toString()}&limit=100`, {
+        headers: { Authorization: `Bearer ${token}` }
+      });
       setAuditLogs(response.data.results || response.data || []);
     } catch (error) {
       console.error('获取审计日志失败:', error);
