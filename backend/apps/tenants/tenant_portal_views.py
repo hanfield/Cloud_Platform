@@ -1041,3 +1041,95 @@ def get_availability_zones(request):
     except Exception as e:
         logger.error(f"获取可用区列表失败: {str(e)}")
         return Response({'error': str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+
+@api_view(['POST'])
+@permission_classes([IsAuthenticated])
+def resize_virtual_machine(request, vm_id):
+    """调整虚拟机配置"""
+    try:
+        tenant = get_user_tenant(request.user)
+        if not tenant:
+            return Response({'error': '未找到租户信息'}, status=status.HTTP_404_NOT_FOUND)
+        
+        # 获取虚拟机并验证权限
+        try:
+            vm = VirtualMachine.objects.get(id=vm_id)
+            # 租户用户权限检查
+            if not request.user.profile.is_admin:
+                if vm.information_system.tenant != tenant:
+                    return Response({'error': '无权操作此虚拟机'}, status=status.HTTP_403_FORBIDDEN)
+        except VirtualMachine.DoesNotExist:
+            return Response({'error': '虚拟机不存在'}, status=status.HTTP_404_NOT_FOUND)
+        
+        # 检查虚拟机状态（只有停止状态才能调整）
+        if vm.status == VirtualMachine.VMStatus.RUNNING:
+            return Response({
+                'error': '虚拟机正在运行，请先停止虚拟机再调整配置'
+            }, status=status.HTTP_400_BAD_REQUEST)
+        
+        # 获取新的配置
+        new_cpu = request.data.get('cpu_cores')
+        new_memory = request.data.get('memory_gb')
+        new_disk = request.data.get('disk_gb')
+        
+        if not all([new_cpu, new_memory, new_disk]):
+            return Response({'error': '缺少必要参数'}, status=status.HTTP_400_BAD_REQUEST)
+        
+        # 检查配置是否有变化
+        if (vm.cpu_cores == new_cpu and 
+            vm.memory_gb == new_memory and 
+            vm.disk_gb == new_disk):
+            return Response({'error': '配置未发生变化'}, status=status.HTTP_400_BAD_REQUEST)
+        
+        # 查找合适的 flavor
+        from ..tenants.utils import find_suitable_flavor
+        new_flavor = find_suitable_flavor(new_cpu, new_memory, new_disk)
+        if not new_flavor:
+            return Response({
+                'error': f'未找到合适的规格配置 (CPU:{new_cpu}核, 内存:{new_memory}GB, 磁盘:{new_disk}GB)'
+            }, status=status.HTTP_400_BAD_REQUEST)
+        
+        # 如果有 OpenStack ID，执行 resize
+        if vm.openstack_id:
+            openstack_service = get_openstack_service()
+            success = openstack_service.resize_server(vm.openstack_id, new_flavor['id'])
+            
+            if not success:
+                return Response({
+                    'error': 'OpenStack 配置调整失败'
+                }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+        
+        # 更新数据库
+        old_config = f'{vm.cpu_cores}核/{vm.memory_gb}GB/{vm.disk_gb}GB'
+        vm.cpu_cores = new_cpu
+        vm.memory_gb = new_memory
+        vm.disk_gb = new_disk
+        vm.save()
+        
+        # 记录操作日志
+        VMOperationLog.objects.create(
+            virtual_machine=vm,
+            operation_type='resize',
+            operator=request.user,
+            operation_detail=f'调整配置: {old_config} -> {new_cpu}核/{new_memory}GB/{new_disk}GB',
+            success=True
+        )
+        
+        logger.info(f"虚拟机 {vm.name} 配置调整成功: {old_config} -> {new_cpu}核/{new_memory}GB/{new_disk}GB")
+        
+        return Response({
+            'success': True,
+            'message': '虚拟机配置调整成功',
+            'vm': {
+                'id': str(vm.id),
+                'name': vm.name,
+                'cpu_cores': vm.cpu_cores,
+                'memory_gb': vm.memory_gb,
+                'disk_gb': vm.disk_gb
+            }
+        })
+        
+    except Exception as e:
+        logger.error(f"调整虚拟机配置失败: {str(e)}")
+        return Response({'error': str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)

@@ -197,7 +197,7 @@ function App() {
                 <Route path="/products" element={<ProductManagement />} />
                 <Route path="/services" element={<ServiceManagement />} />
                 <Route path="/assets" element={<AssetManagement />} />
-                <Route path="/cloud-resources" element={<CloudResources />} />
+                <Route path="/cloud-resources/*" element={<CloudResources />} />
                 <Route path="/billing" element={<BillingManagement />} />
                 <Route path="/orders" element={<OrderManagement />} />
                 <Route path="/tenant-portal" element={<TenantPortal />} />

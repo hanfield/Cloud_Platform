@@ -20,6 +20,7 @@ from .tenant_portal_views import (
     create_virtual_machine,
     get_virtual_machine_detail,
     delete_virtual_machine,
+    resize_virtual_machine,
     get_availability_zones
 )
 from .admin_resource_management import (
@@ -58,6 +59,7 @@ urlpatterns = [
     path('portal/vm/<uuid:vm_id>/', get_virtual_machine_detail, name='tenant-portal-vm-detail'),
     path('portal/vm/<uuid:vm_id>/', get_virtual_machine_detail, name='tenant-portal-vm-detail'),
     path('portal/vm/<uuid:vm_id>/delete/', delete_virtual_machine, name='tenant-portal-delete-vm'),
+    path('portal/vm/<uuid:vm_id>/resize/', resize_virtual_machine, name='tenant-portal-resize-vm'),
     path('portal/availability-zones/', get_availability_zones, name='tenant-portal-availability-zones'),
 
     # 管理员资源管理API
@@ -66,4 +68,6 @@ urlpatterns = [
     path('admin/create-vm/', admin_create_virtual_machine, name='admin-create-vm'),
     path('admin/system/<uuid:system_id>/start/', admin_start_information_system, name='admin-start-system'),
     path('admin/vm/<uuid:vm_id>/start/', admin_start_virtual_machine, name='admin-start-vm'),
+    path('admin/vm/<uuid:vm_id>/delete/', delete_virtual_machine, name='admin-delete-vm'),
+    path('admin/vm/<uuid:vm_id>/resize/', resize_virtual_machine, name='admin-resize-vm'),
 ]

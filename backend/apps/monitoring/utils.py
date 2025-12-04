@@ -4,6 +4,11 @@
 import psutil
 import shutil
 from django.conf import settings
+from django.utils import timezone
+from datetime import timedelta
+import logging
+
+logger = logging.getLogger(__name__)
 
 
 def get_system_resources():
@@ -126,3 +131,126 @@ def calculate_system_health():
         return round(health_score, 1)
     except Exception:
         return 0.0
+
+
+def check_vm_alerts(vm_id=None):
+    """
+    检查虚拟机告警规则
+    
+    Args:
+        vm_id: 可选，指定虚拟机ID。如果为None，检查所有虚拟机
+    
+    Returns:
+        list: 触发的告警列表
+    """
+    from .models import AlertRule, AlertHistory, VMMetricHistory
+    from apps.information_systems.models import VirtualMachine
+    from django.db import models
+    
+    triggered_alerts = []
+    
+    try:
+        # 获取所有启用的告警规则
+        rules = AlertRule.objects.filter(enabled=True)
+        
+        if vm_id:
+            # 过滤特定虚拟机的规则（全局规则 + 该VM专属规则）
+            rules = rules.filter(
+                models.Q(virtual_machine_id=vm_id) | models.Q(virtual_machine__isnull=True)
+            )
+        
+        for rule in rules:
+            # 确定要检查的虚拟机列表
+            vms_to_check = []
+            if rule.virtual_machine:
+                vms_to_check = [rule.virtual_machine]
+            else:
+                # 全局规则：检查所有虚拟机
+                if vm_id:
+                    vms_to_check = [VirtualMachine.objects.get(id=vm_id)]
+                else:
+                    vms_to_check = VirtualMachine.objects.filter(status='running')
+            
+            for vm in vms_to_check:
+                # 获取该虚拟机最近的监控数据
+                duration_ago = timezone.now() - timedelta(minutes=rule.duration)
+                recent_metrics = VMMetricHistory.objects.filter(
+                    virtual_machine=vm,
+                    timestamp__gte=duration_ago
+                ).order_by('-timestamp')
+                
+                if not recent_metrics.exists():
+                    continue
+                
+                # 检查是否持续超过阈值
+                metric_field_map = {
+                    'cpu': 'cpu_usage',
+                    'memory': 'memory_usage',
+                    'network_in': 'network_in_rate',
+                    'network_out': 'network_out_rate',
+                }
+                
+                field_name = metric_field_map.get(rule.metric_type)
+                if not field_name:
+                    continue
+                
+                # 检查是否所有采样点都满足告警条件
+                all_exceed = True
+                latest_value = None
+                
+                for metric in recent_metrics:
+                    value = getattr(metric, field_name, 0)
+                    if latest_value is None:
+                        latest_value = value
+                    
+                    if rule.operator == 'gt':
+                        if value <= rule.threshold:
+                            all_exceed = False
+                            break
+                    elif rule.operator == 'lt':
+                        if value >= rule.threshold:
+                            all_exceed = False
+                            break
+                
+                # 如果触发告警
+                if all_exceed and latest_value is not None:
+                    # 检查是否已有活跃告警
+                    existing_alert = AlertHistory.objects.filter(
+                        rule=rule,
+                        virtual_machine=vm,
+                        status='active'
+                    ).first()
+                    
+                    if not existing_alert:
+                        # 创建新告警
+                        operator_text = '大于' if rule.operator == 'gt' else '小于'
+                        alert = AlertHistory.objects.create(
+                            rule=rule,
+                            virtual_machine=vm,
+                            metric_value=latest_value,
+                            message=f"虚拟机 {vm.name} 的 {rule.get_metric_type_display()} "
+                                   f"{operator_text} {rule.threshold}%，当前值: {latest_value}%，"
+                                   f"已持续 {rule.duration} 分钟",
+                            status='active'
+                        )
+                        triggered_alerts.append(alert)
+                        logger.warning(f"告警触发: {alert.message}")
+                
+                # 如果不再触发，恢复已有的活跃告警
+                elif not all_exceed:
+                    active_alerts = AlertHistory.objects.filter(
+                        rule=rule,
+                        virtual_machine=vm,
+                        status='active'
+                    )
+                    for alert in active_alerts:
+                        alert.status = 'resolved'
+                        alert.resolved_at = timezone.now()
+                        alert.save()
+                        logger.info(f"告警已恢复: {alert.message}")
+        
+        return triggered_alerts
+        
+    except Exception as e:
+        logger.error(f"检查告警失败: {str(e)}")
+        return []

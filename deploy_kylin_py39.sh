@@ -50,12 +50,55 @@ fi
 # 配置 PostgreSQL
 echo ""
 echo ">>> 4. 配置 PostgreSQL..."
-if [ ! -d /var/lib/pgsql/data/base ]; then
-    postgresql-setup --initdb
+
+# 尝试安装 PostgreSQL 13
+if ! rpm -q postgresql13-server &> /dev/null && ! rpm -q postgresql-server &> /dev/null; then
+    echo "安装 PostgreSQL 13..."
+    yum install -y https://download.postgresql.org/pub/repos/yum/reporpms/EL-7-x86_64/pgdg-redhat-repo-latest.noarch.rpm || true
+    dnf -qy module disable postgresql 2>/dev/null || true
+    
+    if yum install -y postgresql13-server postgresql13-contrib; then
+        PG_VERSION=13
+        PG_SETUP="/usr/pgsql-13/bin/postgresql-13-setup"
+        PG_SERVICE="postgresql-13"
+        PG_DATA="/var/lib/pgsql/13/data"
+        
+        ln -sf /usr/pgsql-13/bin/psql /usr/bin/psql
+    else
+        echo "PostgreSQL 13 安装失败，尝试安装默认版本..."
+        yum install -y postgresql-server postgresql-contrib
+        PG_VERSION="default"
+        PG_SETUP="postgresql-setup"
+        PG_SERVICE="postgresql"
+        PG_DATA="/var/lib/pgsql/data"
+    fi
+else
+    if rpm -q postgresql13-server &> /dev/null; then
+        PG_VERSION=13
+        PG_SETUP="/usr/pgsql-13/bin/postgresql-13-setup"
+        PG_SERVICE="postgresql-13"
+        PG_DATA="/var/lib/pgsql/13/data"
+    else
+        PG_VERSION="default"
+        PG_SETUP="postgresql-setup"
+        PG_SERVICE="postgresql"
+        PG_DATA="/var/lib/pgsql/data"
+    fi
 fi
 
-systemctl enable postgresql
-systemctl start postgresql
+# 初始化数据库
+if [ "$PG_VERSION" = "13" ]; then
+    if [ ! -d "$PG_DATA/base" ]; then
+        $PG_SETUP initdb
+    fi
+else
+    if [ ! -d "$PG_DATA/base" ]; then
+        $PG_SETUP --initdb
+    fi
+fi
+
+systemctl enable $PG_SERVICE
+systemctl start $PG_SERVICE
 
 # 创建数据库
 sudo -u postgres psql -c "CREATE DATABASE ${DB_NAME};" 2>/dev/null || echo "数据库已存在"
@@ -66,10 +109,19 @@ sudo -u postgres psql -c "ALTER ROLE ${DB_USER} SET timezone TO 'UTC';"
 sudo -u postgres psql -c "GRANT ALL PRIVILEGES ON DATABASE ${DB_NAME} TO ${DB_USER};"
 
 # 配置 pg_hba.conf
-PG_HBA="/var/lib/pgsql/data/pg_hba.conf"
+# 动态确定数据目录
+if [ -d "/var/lib/pgsql/13/data" ]; then
+    PG_DATA_DIR="/var/lib/pgsql/13/data"
+    PG_SERVICE_NAME="postgresql-13"
+else
+    PG_DATA_DIR="/var/lib/pgsql/data"
+    PG_SERVICE_NAME="postgresql"
+fi
+
+PG_HBA="${PG_DATA_DIR}/pg_hba.conf"
 if ! grep -q "host.*${DB_NAME}.*${DB_USER}" ${PG_HBA}; then
     echo "host    ${DB_NAME}    ${DB_USER}    127.0.0.1/32    md5" >> ${PG_HBA}
-    systemctl restart postgresql
+    systemctl restart ${PG_SERVICE_NAME}
 fi
 
 # 配置 Redis

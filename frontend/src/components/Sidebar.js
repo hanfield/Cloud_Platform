@@ -16,7 +16,13 @@ import {
   AppstoreOutlined,
   ShopOutlined,
   FileTextOutlined,
-  PayCircleOutlined
+  PayCircleOutlined,
+  CloudServerOutlined,
+  DatabaseOutlined,
+  GlobalOutlined,
+  EnvironmentOutlined,
+  BellOutlined,
+  SearchOutlined
 } from '@ant-design/icons';
 
 const { Sider } = Layout;
@@ -61,9 +67,46 @@ const Sidebar = ({ collapsed }) => {
       label: '资产管理'
     },
     {
-      key: '/cloud-resources',
+      key: 'cloud-resources',
       icon: <DesktopOutlined />,
-      label: '云资源管理'
+      label: '云资源管理',
+      children: [
+        {
+          key: '/cloud-resources/vms',
+          icon: <DesktopOutlined />,
+          label: '虚拟机管理'
+        },
+        {
+          key: '/cloud-resources/instances',
+          icon: <CloudServerOutlined />,
+          label: '计算实例'
+        },
+        {
+          key: '/cloud-resources/images',
+          icon: <DatabaseOutlined />,
+          label: '镜像管理'
+        },
+        {
+          key: '/cloud-resources/networks',
+          icon: <GlobalOutlined />,
+          label: '网络管理'
+        },
+        {
+          key: '/cloud-resources/globe',
+          icon: <EnvironmentOutlined />,
+          label: '3D地图'
+        },
+        {
+          key: '/cloud-resources/alerts',
+          icon: <BellOutlined />,
+          label: '告警管理'
+        },
+        {
+          key: '/cloud-resources/audit',
+          icon: <SearchOutlined />,
+          label: '操作审计'
+        }
+      ]
     }
   ];
 

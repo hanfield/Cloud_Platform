@@ -221,6 +221,127 @@ class OpenStackImageViewSet(ViewSet):
                 status=status.HTTP_500_INTERNAL_SERVER_ERROR
             )
 
+    def create(self, request):
+        """上传创建镜像"""
+        try:
+            service = get_openstack_service()
+            data = request.data
+            
+            # 验证必要参数
+            name = data.get('name')
+            if not name:
+                return Response(
+                    {'error': '镜像名称不能为空'},
+                    status=status.HTTP_400_BAD_REQUEST
+                )
+            
+            # 创建镜像元数据
+            image = service.create_image(
+                name=name,
+                disk_format=data.get('disk_format', 'qcow2'),
+                container_format=data.get('container_format', 'bare'),
+                visibility=data.get('visibility', 'private'),
+                min_disk=int(data.get('min_disk', 0)),
+                min_ram=int(data.get('min_ram', 0)),
+                properties=data.get('properties')
+            )
+            
+            # 如果有文件上传，上传镜像数据
+            if 'file' in request.FILES:
+                image_file = request.FILES['file']
+                try:
+                    service.upload_image(image['id'], image_file)
+                except Exception as upload_error:
+                    # 上传失败，删除已创建的镜像
+                    logger.error(f"上传镜像数据失败: {str(upload_error)}")
+                    service.delete_image(image['id'])
+                    return Response(
+                        {'error': f'上传镜像数据失败: {str(upload_error)}'},
+                        status=status.HTTP_400_BAD_REQUEST
+                    )
+            
+            logger.info(f"创建镜像成功: {name} ({image['id']})")
+            return Response(format_resource_data(image), status=status.HTTP_201_CREATED)
+            
+        except Exception as e:
+            logger.error(f"创建镜像失败: {str(e)}")
+            return Response(
+                {'error': f'创建镜像失败: {str(e)}'},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+
+    def partial_update(self, request, pk=None):
+        """更新镜像元数据"""
+        try:
+            service = get_openstack_service()
+            
+            # 检查镜像是否存在
+            existing_image = service.get_image(pk)
+            if not existing_image:
+                return Response(
+                    {'error': '镜像不存在'},
+                    status=status.HTTP_404_NOT_FOUND
+                )
+            
+            # 更新镜像
+            update_data = {}
+            if 'name' in request.data:
+                update_data['name'] = request.data['name']
+            if 'min_disk' in request.data:
+                update_data['min_disk'] = int(request.data['min_disk'])
+            if 'min_ram' in request.data:
+                update_data['min_ram'] = int(request.data['min_ram'])
+            if 'visibility' in request.data:
+                update_data['visibility'] = request.data['visibility']
+            
+            if not update_data:
+                return Response(
+                    {'error': '没有提供要更新的字段'},
+                    status=status.HTTP_400_BAD_REQUEST
+                )
+            
+            updated_image = service.update_image(pk, **update_data)
+            logger.info(f"更新镜像成功: {pk}")
+            return Response(format_resource_data(updated_image))
+            
+        except Exception as e:
+            logger.error(f"更新镜像失败: {str(e)}")
+            return Response(
+                {'error': f'更新镜像失败: {str(e)}'},
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR
+            )
+
+    def destroy(self, request, pk=None):
+        """删除镜像"""
+        try:
+            service = get_openstack_service()
+            
+            # 检查镜像是否存在
+            existing_image = service.get_image(pk)
+            if not existing_image:
+                return Response(
+                    {'error': '镜像不存在'},
+                    status=status.HTTP_404_NOT_FOUND
+                )
+            
+            # 删除镜像
+            success = service.delete_image(pk)
+            if success:
+                logger.info(f"删除镜像成功: {pk}")
+                return Response({'detail': '镜像删除成功'})
+            else:
+                return Response(
+                    {'error': '删除镜像失败'},
+                    status=status.HTTP_400_BAD_REQUEST
+                )
+                
+        except Exception as e:
+            logger.error(f"删除镜像失败: {str(e)}")
+            return Response(
+                {'error': f'删除镜像失败: {str(e)}'},
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR
+            )
+
 
 class OpenStackFlavorViewSet(ViewSet):
     """OpenStack规格管理视图集"""

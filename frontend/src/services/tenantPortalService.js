@@ -40,6 +40,14 @@ export const getAvailabilityZones = async () => {
   return request.get('/tenants/portal/availability-zones/');
 };
 
+export const deleteVirtualMachine = async (vmId) => {
+  return request.delete(`/tenants/portal/vm/${vmId}/delete/`);
+};
+
+export const resizeVirtualMachine = async (vmId, data) => {
+  return request.post(`/tenants/portal/vm/${vmId}/resize/`, data);
+};
+
 export default {
   getTenantProfile,
   getSystemsOverview,
@@ -50,5 +58,7 @@ export default {
   getAvailableProducts,
   subscribeProduct,
   createVirtualMachine,
-  getAvailabilityZones
+  getAvailabilityZones,
+  deleteVirtualMachine,
+  resizeVirtualMachine
 };

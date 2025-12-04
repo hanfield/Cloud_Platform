@@ -49,12 +49,31 @@ fi
 
 # Install PostgreSQL
 if ! command -v psql &> /dev/null; then
-    echo ">>> Installing PostgreSQL..."
-    # This might vary by OS version, assuming CentOS 7/8 standard repos or pgdg
-    yum install -y postgresql-server postgresql-contrib
-    postgresql-setup initdb
-    systemctl enable postgresql
-    systemctl start postgresql
+    echo ">>> Installing PostgreSQL 13..."
+    # Install PostgreSQL repository
+    yum install -y https://download.postgresql.org/pub/repos/yum/reporpms/EL-7-x86_64/pgdg-redhat-repo-latest.noarch.rpm || true
+    
+    # Disable default postgresql module if on CentOS 8/Stream (ignore error on CentOS 7)
+    dnf -qy module disable postgresql 2>/dev/null || true
+    
+    # Install PostgreSQL 13
+    if ! yum install -y postgresql13-server postgresql13-contrib; then
+        echo ">>> Failed to install postgresql13-server, trying default..."
+        yum install -y postgresql-server postgresql-contrib
+        postgresql-setup initdb
+        systemctl enable postgresql
+        systemctl start postgresql
+    else
+        # Initialize DB for PG 13
+        /usr/pgsql-13/bin/postgresql-13-setup initdb
+        systemctl enable postgresql-13
+        systemctl start postgresql-13
+        
+        # Create symlinks if needed
+        ln -sf /usr/pgsql-13/bin/psql /usr/bin/psql
+        ln -sf /usr/pgsql-13/bin/pg_dump /usr/bin/pg_dump
+        ln -sf /usr/pgsql-13/bin/pg_restore /usr/bin/pg_restore
+    fi
 fi
 
 # Install Redis

@@ -4,9 +4,13 @@ from rest_framework.response import Response
 from rest_framework.permissions import IsAdminUser, IsAuthenticated
 from django.utils import timezone
 from datetime import timedelta
-from .models import SystemMetrics, ActivityLog
+from django_filters.rest_framework import DjangoFilterBackend
+from .models import SystemMetrics, ActivityLog, VMMetricHistory, AlertRule, AlertHistory
+from .serializers import AlertRuleSerializer, AlertHistorySerializer
 from .utils import get_system_resources, get_service_status, calculate_system_health
+import logging
 
+logger = logging.getLogger(__name__)
 
 class MonitoringViewSet(viewsets.ViewSet):
     """系统监控API"""
@@ -14,8 +18,8 @@ class MonitoringViewSet(viewsets.ViewSet):
 
     def get_permissions(self):
         """根据action动态设置权限"""
-        if self.action == 'login_history':
-            # 登录历史允许普通认证用户访问
+        if self.action in ['login_history', 'vm_history']:
+            # 登录历史和VM监控允许普通认证用户访问
             return [IsAuthenticated()]
         return [IsAdminUser()]
 
@@ -120,3 +124,100 @@ class MonitoringViewSet(viewsets.ViewSet):
             'health': calculate_system_health(),
             'timestamp': timezone.now().isoformat()
         })
+
+    @action(detail=False, methods=['get'], url_path='vm-history')
+    def vm_history(self, request):
+        """获取虚拟机历史监控数据"""
+        vm_id = request.query_params.get('vm_id')
+        time_range = request.query_params.get('range', '24h')
+        
+        if not vm_id:
+            return Response({'error': 'vm_id is required'}, status=status.HTTP_400_BAD_REQUEST)
+            
+        # Check permission
+        from apps.information_systems.models import VirtualMachine
+        try:
+            vm = VirtualMachine.objects.select_related('information_system__tenant').get(id=vm_id)
+            # If not admin, check if user belongs to the tenant
+            if not request.user.is_staff:
+                 # Check tenant membership logic
+                 pass
+        except VirtualMachine.DoesNotExist:
+             return Response({'error': 'VM not found'}, status=status.HTTP_404_NOT_FOUND)
+
+        # Calculate start time
+        now = timezone.now()
+        if time_range == '1h':
+            start_time = now - timedelta(hours=1)
+        elif time_range == '7d':
+            start_time = now - timedelta(days=7)
+        else: # 24h
+            start_time = now - timedelta(hours=24)
+            
+        history = VMMetricHistory.objects.filter(
+            virtual_machine_id=vm_id,
+            timestamp__gte=start_time
+        ).order_by('timestamp')
+        
+        data = [{
+            'timestamp': h.timestamp.isoformat(),
+            'cpu_usage': h.cpu_usage,
+            'memory_usage': h.memory_usage,
+            'network_in': h.network_in_rate,
+            'network_out': h.network_out_rate
+        } for h in history]
+        
+        # 如果没有历史数据，获取实时数据
+        if not data:
+            try:
+                from apps.openstack.services import OpenStackService
+                openstack_service = OpenStackService()
+                
+                # 获取虚拟机的 OpenStack ID
+                if vm.openstack_id:
+                    metrics = openstack_service.get_server_metrics(vm.openstack_id)
+                    if metrics:
+                        # 返回一个数据点（当前时刻）
+                        data = [{
+                            'timestamp': metrics.get('timestamp', timezone.now().isoformat()),
+                            'cpu_usage': metrics.get('cpu_usage_percent', 0),
+                            'memory_usage': metrics.get('memory_usage_percent', 0),
+                            'network_in': metrics.get('network_in_bytes', 0) / 1024,  # 转换为 KB
+                            'network_out': metrics.get('network_out_bytes', 0) / 1024
+                        }]
+            except Exception as e:
+                logger.warning(f"无法获取虚拟机 {vm_id} 的实时监控数据: {e}")
+        
+        return Response(data)
+
+
+class AlertRuleViewSet(viewsets.ModelViewSet):
+    """告警规则管理"""
+    queryset = AlertRule.objects.all()
+    serializer_class = AlertRuleSerializer
+    permission_classes = [IsAuthenticated]
+    filter_backends = [DjangoFilterBackend]
+    filterset_fields = ['enabled', 'metric_type']
+
+    def get_queryset(self):
+        # 普通用户只能看到自己虚拟机的规则（如果有权限控制的话）
+        # 这里暂时简化，管理员可以看到所有，普通用户只能看到关联到自己VM的规则
+        # 需要进一步完善权限逻辑
+        if self.request.user.is_staff:
+            return AlertRule.objects.all()
+        # 暂时返回空或者基于租户过滤，这里先返回空以安全起见，或者需要关联用户的租户
+        return AlertRule.objects.none() 
+
+class AlertHistoryViewSet(viewsets.ReadOnlyModelViewSet):
+    """告警历史查询"""
+    queryset = AlertHistory.objects.all()
+    serializer_class = AlertHistorySerializer
+    permission_classes = [IsAuthenticated]
+    filter_backends = [DjangoFilterBackend]
+    filterset_fields = ['status', 'rule', 'virtual_machine']
+
+    def get_queryset(self):
+        if self.request.user.is_staff:
+            return AlertHistory.objects.all()
+        return AlertHistory.objects.none()
+

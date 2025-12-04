@@ -104,6 +104,19 @@ ssh $REMOTE_USER@$SERVER_IP "
     rm -rf /tmp/yunpingtai_update
     rm -f /tmp/update_package.tar.gz
     
+    echo 'Running Database Migrations...'
+    cd $PROJECT_DIR/backend
+    source venv/bin/activate
+    python3 manage.py makemigrations
+    python3 manage.py migrate
+    deactivate
+    
+    echo 'Collecting Static Files...'
+    cd $PROJECT_DIR/backend
+    source venv/bin/activate
+    python3 manage.py collectstatic --noinput
+    deactivate
+    
     echo 'Restarting Services...'
     systemctl restart gunicorn celery celerybeat
 "

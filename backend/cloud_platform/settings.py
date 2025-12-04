@@ -59,6 +59,7 @@ MIDDLEWARE = [
     'django.contrib.auth.middleware.AuthenticationMiddleware',
     'django.contrib.messages.middleware.MessageMiddleware',
     'django.middleware.clickjacking.XFrameOptionsMiddleware',
+    'apps.monitoring.middleware.AuditLogMiddleware',  # 审计日志中间件
 ]
 
 ROOT_URLCONF = 'cloud_platform.urls'

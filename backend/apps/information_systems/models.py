@@ -751,3 +751,33 @@ class VMOperationLog(models.Model):
 
     def __str__(self):
         return f"{self.virtual_machine.name} - {self.get_operation_type_display()} - {self.operation_time.strftime('%Y-%m-%d %H:%M:%S')}"
+
+
+class VMSnapshot(models.Model):
+    """虚拟机快照"""
+    STATUS_CHOICES = (
+        ('creating', '创建中'),
+        ('available', '可用'),
+        ('restoring', '恢复中'),
+        ('deleting', '删除中'),
+        ('error', '错误'),
+    )
+
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4)
+    virtual_machine = models.ForeignKey(VirtualMachine, on_delete=models.CASCADE, related_name='snapshots', verbose_name=_('虚拟机'))
+    name = models.CharField(_('快照名称'), max_length=100)
+    description = models.TextField(_('描述'), blank=True)
+    openstack_image_id = models.CharField(_('OpenStack镜像ID'), max_length=64, blank=True)
+    size_gb = models.IntegerField(_('大小(GB)'), default=0)
+    status = models.CharField(_('状态'), max_length=20, choices=STATUS_CHOICES, default='creating')
+    created_at = models.DateTimeField(_('创建时间'), auto_now_add=True)
+    created_by = models.ForeignKey(User, on_delete=models.SET_NULL, null=True, verbose_name=_('创建者'))
+
+    class Meta:
+        db_table = 'vm_snapshots'
+        verbose_name = _('虚拟机快照')
+        verbose_name_plural = _('虚拟机快照')
+        ordering = ['-created_at']
+
+    def __str__(self):
+        return f"{self.virtual_machine.name} - {self.name}"

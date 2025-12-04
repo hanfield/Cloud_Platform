@@ -1,9 +1,10 @@
 import React, { useState, useEffect, useCallback } from 'react';
-import { Card, Row, Col, Table, Button, Space, Tag, Descriptions, message, Modal, Form, Input, Select, Statistic, Divider, InputNumber, TimePicker, Progress } from 'antd';
-import { UserOutlined, DesktopOutlined, ShoppingOutlined, PlusOutlined, PoweroffOutlined, PlayCircleOutlined, StopOutlined, TeamOutlined, EyeOutlined, SyncOutlined, ReloadOutlined, ThunderboltOutlined, DatabaseOutlined, CloudServerOutlined } from '@ant-design/icons';
+import { Card, Row, Col, Table, Button, Space, Tag, Descriptions, message, Modal, Form, Input, Select, Statistic, Divider, InputNumber, TimePicker, Progress, Popconfirm } from 'antd';
+import { UserOutlined, DesktopOutlined, ShoppingOutlined, PlusOutlined, PoweroffOutlined, PlayCircleOutlined, StopOutlined, TeamOutlined, EyeOutlined, SyncOutlined, ReloadOutlined, ThunderboltOutlined, DatabaseOutlined, CloudServerOutlined, DeleteOutlined } from '@ant-design/icons';
 import { useLocation, useNavigate } from 'react-router-dom';
 import { PieChart, Pie, Cell, Tooltip, Legend, ResponsiveContainer } from 'recharts';
 import tenantPortalService from '../services/tenantPortalService';
+import VMDetailModal from '../components/VMDetailModal';
 import moment from 'moment';
 
 const { Option } = Select;
@@ -21,9 +22,14 @@ const TenantPortal = () => {
   const [vmModalVisible, setVmModalVisible] = useState(false);
   const [selectedSystemId, setSelectedSystemId] = useState(null);
   const [availabilityZones, setAvailabilityZones] = useState([]);
+  const [vmDetailModalVisible, setVmDetailModalVisible] = useState(false);
+  const [selectedVm, setSelectedVm] = useState(null);
   const [form] = Form.useForm();
   const [productForm] = Form.useForm();
   const [vmForm] = Form.useForm();
+  const [resizeForm] = Form.useForm();
+  const [resizeModalVisible, setResizeModalVisible] = useState(false);
+  const [selectedVmForResize, setSelectedVmForResize] = useState(null);
 
   // 根据路由确定当前标签页
   const getActiveTabFromPath = () => {
@@ -96,11 +102,49 @@ const TenantPortal = () => {
 
   const handleControlResource = async (resourceId, resourceType, action) => {
     try {
-      await tenantPortalService.controlResource({ resource_id: resourceId, resource_type: resourceType, action });
-      message.success(`资源${action === 'start' ? '启动' : '停止'}成功`);
+      await tenantPortalService.controlResource({
+        resource_id: resourceId,
+        resource_type: resourceType,
+        action: action
+      });
+      message.success(`${action === 'start' ? '启动' : action === 'stop' ? '停止' : '重启'}成功`);
       fetchAllData();
     } catch (error) {
-      message.error('操作失败');
+      message.error(`操作失败: ${error.message || '未知错误'}`);
+    }
+  };
+
+  const handleDeleteVM = async (vmId) => {
+    try {
+      await tenantPortalService.deleteVirtualMachine(vmId);
+      message.success('虚拟机删除成功');
+      fetchAllData();
+    } catch (error) {
+      message.error(`删除失败: ${error.message || '未知错误'}`);
+    }
+  };
+
+  const handleOpenResizeModal = (vm) => {
+    setSelectedVmForResize(vm);
+    resizeForm.setFieldsValue({
+      cpu_cores: vm.cpu,
+      memory_gb: vm.memory,
+      disk_gb: vm.disk
+    });
+    setResizeModalVisible(true);
+  };
+
+  const handleResizeVM = async () => {
+    try {
+      const values = await resizeForm.validateFields();
+      await tenantPortalService.resizeVirtualMachine(selectedVmForResize.id, values);
+      message.success('虚拟机配置调整成功');
+      setResizeModalVisible(false);
+      resizeForm.resetFields();
+      setSelectedVmForResize(null);
+      fetchAllData();
+    } catch (error) {
+      message.error(`配置调整失败: ${error.message || '未知错误'}`);
     }
   };
 
@@ -476,11 +520,42 @@ const TenantPortal = () => {
       key: 'action',
       render: (_, record) => (
         <Space>
+          <Button
+            size="small"
+            icon={<EyeOutlined />}
+            onClick={() => {
+              setSelectedVm(record);
+              setVmDetailModalVisible(true);
+            }}
+          >
+            详情
+          </Button>
           {record.status === 'running' ? (
             <Button size="small" danger icon={<StopOutlined />} onClick={() => handleControlResource(record.id, 'vm', 'stop')}>停止</Button>
           ) : (
             <Button size="small" type="primary" icon={<PlayCircleOutlined />} onClick={() => handleControlResource(record.id, 'vm', 'start')}>启动</Button>
           )}
+          {record.status === 'stopped' && (
+            <Button
+              size="small"
+              icon={<DesktopOutlined />}
+              onClick={() => handleOpenResizeModal(record)}
+            >
+              调整配置
+            </Button>
+          )}
+          <Popconfirm
+            title="确定删除此虚拟机吗？"
+            description="删除后数据将无法恢复，请谨慎操作"
+            onConfirm={() => handleDeleteVM(record.id)}
+            okText="确定"
+            cancelText="取消"
+            okButtonProps={{ danger: true }}
+          >
+            <Button size="small" danger icon={<DeleteOutlined />}>
+              删除
+            </Button>
+          </Popconfirm>
         </Space>
       )
     }
@@ -784,7 +859,68 @@ const TenantPortal = () => {
           </Form.Item>
         </Form>
       </Modal>
+
+      <VMDetailModal
+        visible={vmDetailModalVisible}
+        vm={selectedVm}
+        onClose={() => {
+          setVmDetailModalVisible(false);
+          setSelectedVm(null);
+        }}
+        onRefresh={fetchAllData}
+      />
+
+      {/* 虚拟机配置调整模态框 */}
+      <Modal
+        title="调整虚拟机配置"
+        open={resizeModalVisible}
+        onOk={handleResizeVM}
+        onCancel={() => {
+          setResizeModalVisible(false);
+          resizeForm.resetFields();
+          setSelectedVmForResize(null);
+        }}
+        okText="确认调整"
+        cancelText="取消"
+      >
+        {selectedVmForResize && (
+          <div style={{ marginBottom: 16 }}>
+            <p><strong>虚拟机名称：</strong>{selectedVmForResize.name}</p>
+            <p><strong>当前配置：</strong>{selectedVmForResize.cpu}核 / {selectedVmForResize.memory}GB / {selectedVmForResize.disk}GB</p>
+            <Divider />
+          </div>
+        )}
+        <Form form={resizeForm} layout="vertical">
+          <Form.Item
+            label="CPU (核数)"
+            name="cpu_cores"
+            rules={[{ required: true, message: '请输入CPU核数' }]}
+          >
+            <InputNumber min={1} max={64} style={{ width: '100%' }} />
+          </Form.Item>
+          <Form.Item
+            label="内存 (GB)"
+            name="memory_gb"
+            rules={[{ required: true, message: '请输入内存大小' }]}
+          >
+            <InputNumber min={1} max={256} style={{ width: '100%' }} />
+          </Form.Item>
+          <Form.Item
+            label="磁盘 (GB)"
+            name="disk_gb"
+            rules={[{ required: true, message: '请输入磁盘大小' }]}
+          >
+            <InputNumber min={10} max={2000} style={{ width: '100%' }} />
+          </Form.Item>
+        </Form>
+        <div style={{ marginTop: 16, padding: 12, background: '#f0f2f5', borderRadius: 4 }}>
+          <p style={{ margin: 0, fontSize: 12, color: '#666' }}>
+            ⚠️ 注意：调整配置需要虚拟机处于停止状态。调整完成后请手动启动虚拟机。
+          </p>
+        </div>
+      </Modal>
     </div >
+
   );
 };
 

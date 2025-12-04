@@ -10,7 +10,7 @@ from django_filters.rest_framework import DjangoFilterBackend
 from django.utils import timezone
 from .models import (
     InformationSystem, SystemResource, SystemOperationLog, SystemBillingRecord,
-    VirtualMachine, DailyBillingRecord, ResourceAdjustmentLog
+    VirtualMachine, DailyBillingRecord, ResourceAdjustmentLog, VMSnapshot
 )
 from .serializers import (
     InformationSystemSerializer,
@@ -18,7 +18,9 @@ from .serializers import (
     SystemOperationLogSerializer,
     SystemBillingRecordSerializer,
     InformationSystemCreateSerializer,
-    SystemResourceCreateSerializer
+    InformationSystemCreateSerializer,
+    SystemResourceCreateSerializer,
+    VMSnapshotSerializer
 )
 from ..openstack.services import get_openstack_service
 
@@ -589,3 +591,89 @@ class SystemOperationLogViewSet(viewsets.ReadOnlyModelViewSet):
         return SystemOperationLog.objects.select_related(
             'information_system', 'operator'
         ).all()
+
+
+class VMSnapshotViewSet(viewsets.ModelViewSet):
+    """虚拟机快照视图集"""
+
+    permission_classes = [IsAuthenticated]
+    serializer_class = VMSnapshotSerializer
+    filter_backends = [DjangoFilterBackend]
+    filterset_fields = ['virtual_machine', 'status']
+
+    def get_queryset(self):
+        return VMSnapshot.objects.select_related('virtual_machine', 'created_by').all()
+
+    def perform_create(self, serializer):
+        """创建快照"""
+        # 1. 保存数据库记录 (状态: creating)
+        snapshot = serializer.save(created_by=self.request.user, status='creating')
+        
+        # 2. 触发异步任务 (调用OpenStack)
+        # TODO: Implement Celery task
+        # create_snapshot_task.delay(snapshot.id)
+        
+        # 暂时同步调用以便测试 (后续移至Celery)
+        try:
+            openstack_service = get_openstack_service()
+            vm = snapshot.virtual_machine
+            if vm.openstack_id:
+                image_id = openstack_service.create_server_snapshot(vm.openstack_id, snapshot.name)
+                if image_id:
+                    snapshot.openstack_image_id = image_id
+                    snapshot.save()
+            else:
+                snapshot.status = 'error'
+                snapshot.description += " (Error: VM has no OpenStack ID)"
+                snapshot.save()
+        except Exception as e:
+            snapshot.status = 'error'
+            snapshot.description += f" (Error: {str(e)})"
+            snapshot.save()
+
+    @action(detail=True, methods=['post'])
+    def restore(self, request, pk=None):
+        """恢复快照 (回滚)"""
+        snapshot = self.get_object()
+        
+        if not snapshot.openstack_image_id:
+            return Response({'error': '快照未就绪 (无ImageID)'}, status=status.HTTP_400_BAD_REQUEST)
+
+        try:
+            openstack_service = get_openstack_service()
+            vm = snapshot.virtual_machine
+            
+            # 1. 更新状态
+            snapshot.status = 'restoring'
+            snapshot.save()
+            
+            # 2. 调用OpenStack重建
+            success = openstack_service.rebuild_server(vm.openstack_id, snapshot.openstack_image_id)
+            
+            if success:
+                snapshot.status = 'available'
+                snapshot.save()
+                return Response({'status': 'success', 'message': '快照回滚指令已发送'})
+            else:
+                snapshot.status = 'error'
+                snapshot.save()
+                return Response({'error': '回滚失败'}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+                
+        except Exception as e:
+            snapshot.status = 'error'
+            snapshot.save()
+            return Response({'error': str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+    def perform_destroy(self, instance):
+        """删除快照"""
+        # 1. 删除OpenStack镜像
+        if instance.openstack_image_id:
+            try:
+                openstack_service = get_openstack_service()
+                openstack_service.delete_image(instance.openstack_image_id)
+            except Exception as e:
+                # 记录日志但允许删除本地记录
+                pass
+        
+        # 2. 删除本地记录
+        instance.delete()

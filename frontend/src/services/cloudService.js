@@ -20,8 +20,32 @@ export const deleteServer = async (id) => {
   return request.delete(`/openstack/servers/${id}/`);
 };
 
+export const deleteVirtualMachine = async (id) => {
+  return request.delete(`/tenants/admin/vm/${id}/delete/`);
+};
+
+export const resizeVirtualMachine = async (id, data) => {
+  return request.post(`/tenants/admin/vm/${id}/resize/`, data);
+};
+
 export const getImages = async () => {
   return request.get('/openstack/images/');
+};
+
+export const createImage = async (data) => {
+  return request.post('/openstack/images/', data, {
+    headers: {
+      'Content-Type': 'multipart/form-data'
+    }
+  });
+};
+
+export const updateImage = async (id, data) => {
+  return request.patch(`/openstack/images/${id}/`, data);
+};
+
+export const deleteImage = async (id) => {
+  return request.delete(`/openstack/images/${id}/`);
 };
 
 export const getFlavors = async () => {
@@ -42,7 +66,12 @@ export default {
   getServers,
   createServer,
   deleteServer,
+  deleteVirtualMachine,
+  resizeVirtualMachine,
   getImages,
+  createImage,
+  updateImage,
+  deleteImage,
   getFlavors,
   getNetworks,
   createNetwork

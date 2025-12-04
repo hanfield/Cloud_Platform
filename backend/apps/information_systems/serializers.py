@@ -9,7 +9,8 @@ from .models import (
     SystemOperationLog,
     SystemBillingRecord,
     VirtualMachine,
-    VMOperationLog
+    VMOperationLog,
+    VMSnapshot
 )
 from apps.tenants.models import Tenant
 
@@ -308,3 +309,20 @@ class VMOperationLogSerializer(serializers.ModelSerializer):
             'operator', 'operator_name', 'operation_time', 'success', 'error_message'
         ]
         read_only_fields = ['operation_time']
+
+
+class VMSnapshotSerializer(serializers.ModelSerializer):
+    """虚拟机快照序列化器"""
+
+    virtual_machine_name = serializers.CharField(source='virtual_machine.name', read_only=True)
+    created_by_name = serializers.CharField(source='created_by.username', read_only=True)
+    status_display = serializers.CharField(source='get_status_display', read_only=True)
+
+    class Meta:
+        model = VMSnapshot
+        fields = [
+            'id', 'virtual_machine', 'virtual_machine_name', 'name', 'description',
+            'openstack_image_id', 'size_gb', 'status', 'status_display',
+            'created_at', 'created_by', 'created_by_name'
+        ]
+        read_only_fields = ['id', 'openstack_image_id', 'size_gb', 'status', 'created_at', 'created_by']

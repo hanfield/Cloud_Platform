@@ -57,6 +57,23 @@ app.conf.beat_schedule = {
         'options': {'queue': 'maintenance'}
     },
 
+    'collect-vm-metrics-every-5-min': {
+        'task': 'collect_vm_metrics',
+        'schedule': 300.0,  # 5分钟
+    },
+    
+    'cleanup-old-metrics-daily': {
+        'task': 'cleanup_old_metrics',
+        'schedule': crontab(hour=2, minute=0),
+    },
+
+    # 告警检查任务 - 每分钟执行一次
+    'check-vm-alerts-every-minute': {
+        'task': 'check_vm_alerts',
+        'schedule': 60.0,  # 每60秒执行一次
+        'options': {'queue': 'monitoring'}
+    },
+
 }
 
 # Celery任务配置
