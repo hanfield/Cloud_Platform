@@ -1,0 +1,14 @@
+[Unit]
+Description=Celery Worker for Cloud Platform
+After=network.target redis.service
+
+[Service]
+Type=simple
+User=root
+WorkingDirectory=/root/Yunpingtai/backend
+ExecStart=/root/Yunpingtai/venv/bin/celery -A cloud_platform worker --loglevel=info -Q monitoring,billing,maintenance
+Restart=always
+RestartSec=10
+
+[Install]
+WantedBy=multi-user.target

@@ -29,6 +29,16 @@ export const deleteInformationSystem = async (id) => {
   return request.delete(`/information-systems/${id}/`);
 };
 
+// 启动信息系统（调用专用action，会启动关联的虚拟机）
+export const startInformationSystem = async (id) => {
+  return request.post(`/information-systems/${id}/start/`);
+};
+
+// 停止信息系统（调用专用action，会停止关联的虚拟机）
+export const stopInformationSystem = async (id) => {
+  return request.post(`/information-systems/${id}/stop/`);
+};
+
 // 获取信息系统统计信息
 export const getInformationSystemStatistics = async () => {
   return request.get('/information-systems/statistics/');
@@ -39,9 +49,23 @@ export const getInformationSystemResources = async (id) => {
   return request.get(`/information-systems/${id}/resources/`);
 };
 
-// 更新信息系统状态
+// 更新信息系统状态（通用）- 保留兼容性
 export const updateInformationSystemStatus = async (id, status) => {
-  return request.patch(`/information-systems/${id}/status/`, { status });
+  // 根据状态调用不同的端点
+  if (status === 'maintenance') {
+    return request.post(`/information-systems/${id}/maintenance/`);
+  } else if (status === 'running') {
+    return request.post(`/information-systems/${id}/start/`);
+  } else if (status === 'stopped') {
+    return request.post(`/information-systems/${id}/stop/`);
+  }
+  // 降级到通用更新
+  return request.patch(`/information-systems/${id}/`, { status });
+};
+
+// 进入维护模式（调用专用action）
+export const maintenanceInformationSystem = async (id) => {
+  return request.post(`/information-systems/${id}/maintenance/`);
 };
 
 // 获取信息系统运行时间统计
@@ -65,6 +89,9 @@ export default {
   createInformationSystem,
   updateInformationSystem,
   deleteInformationSystem,
+  startInformationSystem,
+  stopInformationSystem,
+  maintenanceInformationSystem,
   getInformationSystemStatistics,
   getInformationSystemResources,
   updateInformationSystemStatus,

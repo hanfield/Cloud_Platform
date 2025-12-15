@@ -3,7 +3,7 @@
  */
 
 import React, { useState, useEffect, useCallback } from 'react';
-import { Button, Modal, Input, Select, Space, message, Row, Col, Card, Statistic, Tabs, Table, Tag } from 'antd';
+import { Button, Modal, Input, Select, Space, message, Row, Col, Card, Statistic, Tabs, Table, Tag, Popconfirm, Tooltip } from 'antd';
 import {
   PlusOutlined,
   SearchOutlined,
@@ -14,7 +14,12 @@ import {
   DesktopOutlined,
   FileTextOutlined,
   SafetyCertificateOutlined,
-  PayCircleOutlined
+  PayCircleOutlined,
+  PlayCircleOutlined,
+  PauseCircleOutlined,
+  EditOutlined,
+  DeleteOutlined,
+  ToolOutlined
 } from '@ant-design/icons';
 import TenantTable from '../components/TenantTable';
 import TenantForm from '../components/TenantForm';
@@ -569,6 +574,79 @@ const TenantManagement = () => {
                       dataIndex: 'total_storage',
                       key: 'total_storage',
                       render: (storage) => `${storage} GB`
+                    },
+                    {
+                      title: '操作',
+                      key: 'actions',
+                      width: 160,
+                      render: (_, record) => (
+                        <Space size="small">
+                          {record.status !== 'running' && (
+                            <Tooltip title="启动">
+                              <Button
+                                type="link"
+                                size="small"
+                                icon={<PlayCircleOutlined />}
+                                onClick={async () => {
+                                  try {
+                                    await informationSystemService.startInformationSystem(record.id);
+                                    message.success('启动成功，相关虚拟机正在启动。请重新打开详情查看更新。');
+                                    Modal.destroyAll();
+                                    fetchTenants();
+                                  } catch (error) {
+                                    message.error('启动失败: ' + (error.response?.data?.message || error.message));
+                                  }
+                                }}
+                              />
+                            </Tooltip>
+                          )}
+                          {record.status === 'running' && (
+                            <Tooltip title="停止">
+                              <Button
+                                type="link"
+                                size="small"
+                                icon={<PauseCircleOutlined />}
+                                onClick={async () => {
+                                  try {
+                                    await informationSystemService.stopInformationSystem(record.id);
+                                    message.success('停止成功，相关虚拟机已停止。请重新打开详情查看更新。');
+                                    Modal.destroyAll();
+                                    fetchTenants();
+                                  } catch (error) {
+                                    message.error('停止失败: ' + (error.response?.data?.message || error.message));
+                                  }
+                                }}
+                              />
+                            </Tooltip>
+                          )}
+                          <Popconfirm
+                            title="确定删除这个信息系统吗？"
+                            description={<span style={{ color: '#ff4d4f' }}>⚠️ 此操作将同时删除系统下的所有虚拟机，不可恢复！</span>}
+                            onConfirm={async () => {
+                              try {
+                                await informationSystemService.deleteInformationSystem(record.id);
+                                message.success('删除成功');
+                                Modal.destroyAll();
+                                fetchTenants();
+                              } catch (error) {
+                                message.error('删除失败: ' + error.message);
+                              }
+                            }}
+                            okText="确定删除"
+                            cancelText="取消"
+                            okButtonProps={{ danger: true }}
+                          >
+                            <Tooltip title="删除">
+                              <Button
+                                type="link"
+                                size="small"
+                                danger
+                                icon={<DeleteOutlined />}
+                              />
+                            </Tooltip>
+                          </Popconfirm>
+                        </Space>
+                      )
                     }
                   ]}
                   expandable={{
@@ -740,7 +818,24 @@ const TenantManagement = () => {
       fetchTenants();
       fetchStatistics();
     } catch (error) {
-      message.error('操作失败: ' + error.message);
+      console.error('API Error:', error.response?.data);
+      // 显示后端返回的详细错误信息
+      let errorMsg = '操作失败';
+      if (error.response?.data) {
+        const data = error.response.data;
+        if (typeof data === 'object') {
+          // 尝试解析验证错误
+          const errors = Object.entries(data)
+            .map(([field, msgs]) => `${field}: ${Array.isArray(msgs) ? msgs.join(', ') : msgs}`)
+            .join('; ');
+          errorMsg = errors || errorMsg;
+        } else if (typeof data === 'string') {
+          errorMsg = data;
+        }
+      } else {
+        errorMsg = error.message;
+      }
+      message.error(errorMsg);
     }
   };
 

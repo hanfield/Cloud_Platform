@@ -5,7 +5,7 @@
 import React, { useState, useEffect } from 'react';
 import {
   Row, Col, Card, Statistic, Progress, Table, Tag, Timeline,
-  Button, Space, Typography, Divider, Alert, message
+  Button, Space, Typography, Divider, Alert, message, Modal
 } from 'antd';
 import {
   CloudServerOutlined, TeamOutlined, FileTextOutlined,
@@ -17,8 +17,10 @@ import { useNavigate } from 'react-router-dom';
 import tenantService from '../services/tenantService';
 import userService from '../services/userService';
 import contractService from '../services/contractService';
+import api from '../services/api';
 
 import AdminResourceCreate from '../components/AdminResourceCreate';
+import VMCreateWizard from '../components/VMCreateWizard';
 
 const { Title, Text, Paragraph } = Typography;
 
@@ -32,8 +34,10 @@ const Dashboard = () => {
   });
 
   // 管理员资源创建模态框状态
-  const [createModalVisible, setCreateModalVisible] = useState(false);
-  const [createType, setCreateType] = useState('system'); // 'system' or 'vm'
+  const [createSystemModalVisible, setCreateSystemModalVisible] = useState(false);
+  const [createVMModalVisible, setCreateVMModalVisible] = useState(false);
+  const [systems, setSystems] = useState([]);
+  const [selectedSystemId, setSelectedSystemId] = useState(null);
 
   // 监控数据
   const [resources, setResources] = useState({
@@ -77,38 +81,38 @@ const Dashboard = () => {
 
   const fetchMonitoringData = async () => {
     try {
-      const token = localStorage.getItem('access_token');
-      const headers = {
-        'Authorization': `Bearer ${token}`
-      };
-
       // 获取系统资源
-      const resourcesRes = await fetch('/api/monitoring/resources/', { headers });
-      if (resourcesRes.ok) {
-        const resourcesData = await resourcesRes.json();
-        setResources(resourcesData);
-      }
+      try {
+        const resourcesData = await api.get('/monitoring/resources/');
+        if (resourcesData) {
+          setResources(resourcesData);
+        }
+      } catch (e) { console.error('Resources fetch failed', e); }
 
       // 获取服务状态
-      const servicesRes = await fetch('/api/monitoring/services/', { headers });
-      if (servicesRes.ok) {
-        const servicesData = await servicesRes.json();
-        setServices(servicesData.services || []);
-      }
+      try {
+        const servicesData = await api.get('/monitoring/services/');
+        if (servicesData) {
+          setServices(servicesData.services || []);
+        }
+      } catch (e) { console.error('Services fetch failed', e); }
 
       // 获取最近活动
-      const activitiesRes = await fetch('/api/monitoring/activities/?limit=5', { headers });
-      if (activitiesRes.ok) {
-        const activitiesData = await activitiesRes.json();
-        setActivities(activitiesData);
-      }
+      try {
+        const activitiesData = await api.get('/monitoring/activities/?limit=5');
+        if (activitiesData) {
+          setActivities(activitiesData);
+        }
+      } catch (e) { console.error('Activities fetch failed', e); }
 
       // 获取健康度
-      const healthRes = await fetch('/api/monitoring/health/', { headers });
-      if (healthRes.ok) {
-        const healthData = await healthRes.json();
-        setHealthScore(healthData.health_score);
-      }
+      try {
+        const healthData = await api.get('/monitoring/health/');
+        if (healthData) {
+          setHealthScore(healthData.health_score);
+        }
+      } catch (e) { console.error('Health fetch failed', e); }
+
     } catch (error) {
       console.error('获取监控数据失败:', error);
     }
@@ -127,19 +131,13 @@ const Dashboard = () => {
       title: '为租户建系统',
       icon: <DatabaseOutlined />,
       color: '#722ed1',
-      onClick: () => {
-        setCreateType('system');
-        setCreateModalVisible(true);
-      }
+      onClick: () => setCreateSystemModalVisible(true)
     },
     {
       title: '为租户建VM',
       icon: <CloudServerOutlined />,
       color: '#13c2c2',
-      onClick: () => {
-        setCreateType('vm');
-        setCreateModalVisible(true);
-      }
+      onClick: () => setCreateVMModalVisible(true)
     },
     {
       title: '合同管理',
@@ -186,6 +184,80 @@ const Dashboard = () => {
           <Text>{uptime}</Text>
         </Space>
       )
+    }
+  ];
+
+  // 活动日志模态框
+  const [activityModalVisible, setActivityModalVisible] = useState(false);
+  const [fullActivities, setFullActivities] = useState([]);
+  const [activitiesLoading, setActivitiesLoading] = useState(false);
+
+  const fetchFullActivities = async () => {
+    setActivitiesLoading(true);
+    try {
+      const data = await api.get('/monitoring/activities/?full=true&limit=100');
+      if (data && data.results) {
+        setFullActivities(data.results);
+      }
+    } catch (error) {
+      console.error('获取完整活动日志失败:', error);
+      message.error('获取活动日志失败');
+    } finally {
+      setActivitiesLoading(false);
+    }
+  };
+
+  const handleOpenActivityModal = () => {
+    setActivityModalVisible(true);
+    fetchFullActivities();
+  };
+
+  const activityColumns = [
+    {
+      title: '时间',
+      dataIndex: 'created_at',
+      key: 'created_at',
+      width: 180,
+      render: (text) => new Date(text).toLocaleString()
+    },
+    {
+      title: '用户',
+      dataIndex: 'username',
+      key: 'username',
+      width: 100,
+    },
+    {
+      title: '操作',
+      dataIndex: 'action_type_display',
+      key: 'action_type_display',
+      width: 100,
+      render: (text, record) => (
+        <Tag color={record.action_type === 'delete' ? 'red' : record.action_type === 'create' ? 'green' : 'blue'}>
+          {text}
+        </Tag>
+      )
+    },
+    {
+      title: '描述',
+      dataIndex: 'description',
+      key: 'description',
+    },
+    {
+      title: '状态',
+      dataIndex: 'status_display',
+      key: 'status',
+      width: 80,
+      render: (text, record) => (
+        <Tag color={record.status === 'success' ? 'success' : 'error'}>
+          {text}
+        </Tag>
+      )
+    },
+    {
+      title: 'IP地址',
+      dataIndex: 'ip_address',
+      key: 'ip_address',
+      width: 120,
     }
   ];
 
@@ -354,7 +426,7 @@ const Dashboard = () => {
                 <span>最近活动</span>
               </Space>
             }
-            extra={<Button type="link" size="small">查看全部</Button>}
+            extra={<Button type="link" size="small" onClick={handleOpenActivityModal}>查看全部</Button>}
             bodyStyle={{ minHeight: 280 }}
           >
             {activities.length > 0 ? (
@@ -429,15 +501,61 @@ const Dashboard = () => {
         </Col>
       </Row>
 
+      {/* 创建信息系统 */}
       <AdminResourceCreate
-        visible={createModalVisible}
-        type={createType}
-        onCancel={() => setCreateModalVisible(false)}
+        visible={createSystemModalVisible}
+        type="system"
+        onCancel={() => setCreateSystemModalVisible(false)}
         onSuccess={() => {
-          message.success('资源创建成功');
-          // 可以在这里刷新相关数据
+          message.success('信息系统创建成功');
         }}
       />
+
+      {/* 创建虚拟机 */}
+      <VMCreateWizard
+        visible={createVMModalVisible}
+        onCancel={() => setCreateVMModalVisible(false)}
+        onSuccess={() => {
+          message.success('虚拟机创建成功');
+        }}
+        systems={systems}
+        selectedSystemId={selectedSystemId}
+        isAdmin={true}
+      />
+
+      {/* 活动日志详情模态框 */}
+      <Modal
+        title={
+          <Space>
+            <ClockCircleOutlined />
+            <span>系统活动日志</span>
+          </Space>
+        }
+        visible={activityModalVisible}
+        onCancel={() => setActivityModalVisible(false)}
+        width={1000}
+        footer={[
+          <Button key="close" onClick={() => setActivityModalVisible(false)}>
+            关闭
+          </Button>,
+          <Button key="refresh" type="primary" onClick={fetchFullActivities} loading={activitiesLoading}>
+            刷新
+          </Button>
+        ]}
+      >
+        <Table
+          dataSource={fullActivities}
+          columns={activityColumns}
+          rowKey="id"
+          loading={activitiesLoading}
+          pagination={{
+            defaultPageSize: 10,
+            showSizeChanger: true,
+            showTotal: (total) => `共 ${total} 条记录`
+          }}
+          size="small"
+        />
+      </Modal>
     </div>
   );
 };

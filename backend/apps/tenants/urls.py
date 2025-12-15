@@ -27,6 +27,9 @@ from .admin_resource_management import (
     admin_create_information_system,
     admin_create_virtual_machine,
     admin_start_virtual_machine,
+    admin_stop_virtual_machine,
+    admin_delete_virtual_machine,
+    admin_resize_virtual_machine,
     admin_start_information_system,
     get_all_tenants
 )
@@ -68,6 +71,7 @@ urlpatterns = [
     path('admin/create-vm/', admin_create_virtual_machine, name='admin-create-vm'),
     path('admin/system/<uuid:system_id>/start/', admin_start_information_system, name='admin-start-system'),
     path('admin/vm/<uuid:vm_id>/start/', admin_start_virtual_machine, name='admin-start-vm'),
-    path('admin/vm/<uuid:vm_id>/delete/', delete_virtual_machine, name='admin-delete-vm'),
-    path('admin/vm/<uuid:vm_id>/resize/', resize_virtual_machine, name='admin-resize-vm'),
+    path('admin/vm/<uuid:vm_id>/stop/', admin_stop_virtual_machine, name='admin-stop-vm'),
+    path('admin/vm/<uuid:vm_id>/delete/', admin_delete_virtual_machine, name='admin-delete-vm'),
+    path('admin/vm/<uuid:vm_id>/resize/', admin_resize_virtual_machine, name='admin-resize-vm'),
 ]

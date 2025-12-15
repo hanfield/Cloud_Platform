@@ -192,18 +192,38 @@ class OpenStackService:
 
     def create_server(self, name: str, image_id: str, flavor_id: str,
                       network_ids: List[str], **kwargs) -> Dict[str, Any]:
-        """创建服务器实例"""
+        """创建服务器实例（从镜像启动，不创建新卷）
+        
+        使用 destination_type='local' 确保使用临时磁盘，不创建 Cinder 卷
+        """
         try:
             conn = self.get_connection()
 
             # 构建网络配置
             networks = [{'uuid': net_id} for net_id in network_ids]
+            
+            # 构建 block_device_mapping_v2 - 明确指定不创建新卷
+            # destination_type='local' 表示使用本地临时磁盘
+            block_device_mapping_v2 = [{
+                'boot_index': 0,
+                'uuid': image_id,
+                'source_type': 'image',
+                'destination_type': 'local',  # 关键：使用本地磁盘，不创建卷
+                'delete_on_termination': True
+            }]
+            
+            # 详细日志
+            logger.info(f"创建服务器 - 名称: {name}")
+            logger.info(f"创建服务器 - 镜像ID: {image_id}")
+            logger.info(f"创建服务器 - Flavor ID: {flavor_id}")
+            logger.info(f"创建服务器 - 网络: {network_ids}")
+            logger.info(f"创建服务器 - 模式: 从镜像启动（destination_type=local，不创建卷）")
 
             server = conn.compute.create_server(
                 name=name,
-                image_id=image_id,
                 flavor_id=flavor_id,
                 networks=networks,
+                block_device_mapping=block_device_mapping_v2,
                 **kwargs
             )
 
@@ -216,7 +236,7 @@ class OpenStackService:
             logger.error(f"创建服务器失败: {str(e)}")
             raise SDKException(f"创建服务器失败: {str(e)}")
 
-    def list_servers(self, project_id: str = None) -> List[Dict[str, Any]]:
+    def list_servers(self, project_id: str = None, all_tenants: bool = False) -> List[Dict[str, Any]]:
         """列出服务器实例"""
         try:
             conn = self.get_connection()
@@ -238,7 +258,9 @@ class OpenStackService:
                         'addresses': {'private': [{'addr': '192.168.1.11'}]}
                     }
                 ]
-            servers = conn.compute.servers(project_id=project_id)
+            
+            # 只有管理员且指定了all_tenants才查询所有租户
+            servers = conn.compute.servers(project_id=project_id, all_tenants=all_tenants)
             return [server.to_dict() for server in servers]
         except Exception as e:
             logger.error(f"列出服务器失败: {str(e)}")
@@ -265,17 +287,156 @@ class OpenStackService:
             logger.error(f"删除服务器失败: {str(e)}")
             return False
 
+    def start_server(self, server_id: str) -> bool:
+        """启动服务器"""
+        try:
+            conn = self.get_connection()
+            conn.compute.start_server(server_id)
+            logger.info(f"启动服务器成功: {server_id}")
+            return True
+        except Exception as e:
+            logger.error(f"启动服务器失败: {str(e)}")
+            return False
+
+    def stop_server(self, server_id: str) -> bool:
+        """停止服务器"""
+        try:
+            conn = self.get_connection()
+            conn.compute.stop_server(server_id)
+            logger.info(f"停止服务器成功: {server_id}")
+            return True
+        except Exception as e:
+            logger.error(f"停止服务器失败: {str(e)}")
+            return False
+
+    def reboot_server(self, server_id: str, reboot_type: str = 'SOFT') -> bool:
+        """重启服务器
+        
+        Args:
+            server_id: 服务器ID
+            reboot_type: 重启类型 'SOFT'(优雅重启) 或 'HARD'(强制重启)
+        """
+        try:
+            conn = self.get_connection()
+            # OpenStack SDK expects uppercase SOFT or HARD
+            conn.compute.reboot_server(server_id, reboot_type.upper())
+            logger.info(f"重启服务器成功: {server_id} (类型: {reboot_type})")
+            return True
+        except Exception as e:
+            logger.error(f"重启服务器失败: {str(e)}")
+            return False
+
+    def resize_server(self, server_id: str, flavor_id: str) -> bool:
+        """调整服务器配置"""
+        try:
+            conn = self.get_connection()
+            conn.compute.resize_server(server_id, flavor_id)
+            # 自动确认调整
+            # 注意：实际生产中可能需要等待状态变为VERIFY_RESIZE后再确认
+            # 这里简单处理，OpenStack SDK可能会自动处理或需要异步确认
+            # 为简单起见，我们假设调整请求提交成功即可
+            logger.info(f"调整服务器配置请求已提交: {server_id} -> {flavor_id}")
+            return True
+        except Exception as e:
+            logger.error(f"调整服务器配置失败: {str(e)}")
+            return False
+
+    def pause_server(self, server_id: str) -> bool:
+        """暂停服务器"""
+        try:
+            conn = self.get_connection()
+            conn.compute.pause_server(server_id)
+            logger.info(f"暂停服务器成功: {server_id}")
+            return True
+        except Exception as e:
+            logger.error(f"暂停服务器失败: {str(e)}")
+            return False
+
+    def unpause_server(self, server_id: str) -> bool:
+        """恢复服务器"""
+        try:
+            conn = self.get_connection()
+            conn.compute.unpause_server(server_id)
+            logger.info(f"恢复服务器成功: {server_id}")
+            return True
+        except Exception as e:
+            logger.error(f"恢复服务器失败: {str(e)}")
+            return False
+
     # ==================== 镜像管理 ====================
 
-    def list_images(self) -> List[Dict[str, Any]]:
-        """列出镜像"""
+    def list_images(self, include_snapshots: bool = False) -> List[Dict[str, Any]]:
+        """列出镜像
+        
+        Args:
+            include_snapshots: 是否包含快照，默认 False（只返回基础镜像）
+        """
         try:
             conn = self.get_connection()
             images = conn.image.images()
-            return [image.to_dict() for image in images]
+            result = []
+            for image in images:
+                img_dict = image.to_dict()
+                
+                # 过滤快照：使用多种方式判断是否为实例快照
+                if not include_snapshots:
+                    if self._is_instance_snapshot(img_dict):
+                        continue
+                
+                result.append(img_dict)
+            
+            logger.info(f"列出镜像成功，共 {len(result)} 个镜像（include_snapshots={include_snapshots}）")
+            return result
         except Exception as e:
             logger.error(f"列出镜像失败: {str(e)}")
             return []
+    
+    def _is_instance_snapshot(self, img_dict: Dict[str, Any]) -> bool:
+        """判断镜像是否为实例快照
+        
+        OpenStack 实例快照的识别方式：
+        1. image_type 字段 = 'snapshot'
+        2. properties.image_type = 'snapshot'
+        3. base_image_ref 存在（表示是从另一个镜像创建的）
+        4. image_location = 'snapshot'
+        5. block_device_mapping 中包含 source_type = 'snapshot'
+        """
+        # 检查顶级 image_type
+        if img_dict.get('image_type') == 'snapshot':
+            return True
+        
+        # 获取 properties（有些版本的 OpenStack 把属性放在这里）
+        props = img_dict.get('properties', {}) or {}
+        
+        # 检查 properties 中的 image_type
+        if props.get('image_type') == 'snapshot':
+            return True
+        
+        # 检查 base_image_ref（非空字符串表示是从另一个镜像创建的快照）
+        base_image_ref = props.get('base_image_ref', '')
+        if base_image_ref and str(base_image_ref).strip():
+            return True
+        
+        # 检查 image_location
+        if props.get('image_location') == 'snapshot':
+            return True
+        
+        # 检查 block_device_mapping 中的 source_type
+        # 这是 boot-from-volume 快照的关键标识
+        bdm = props.get('block_device_mapping')
+        if bdm:
+            try:
+                import json
+                if isinstance(bdm, str):
+                    bdm = json.loads(bdm)
+                if isinstance(bdm, list):
+                    for device in bdm:
+                        if isinstance(device, dict) and device.get('source_type') == 'snapshot':
+                            return True
+            except (json.JSONDecodeError, TypeError):
+                pass
+        
+        return False
 
     def get_image(self, image_id: str) -> Optional[Dict[str, Any]]:
         """获取镜像详情"""
@@ -375,7 +536,188 @@ class OpenStackService:
             return None
 
 
+    # ==================== 卷管理 (Cinder) ====================
+
+    def list_volumes(self, project_id: str = None, all_tenants: bool = False) -> List[Dict[str, Any]]:
+        """列出卷"""
+        try:
+            conn = self.get_connection()
+            if conn is None:
+                logger.warning("OpenStack连接不可用，返回空列表")
+                return []
+            
+            kwargs = {}
+            if all_tenants:
+                kwargs['all_tenants'] = True
+            if project_id:
+                kwargs['project_id'] = project_id
+                
+            volumes = conn.block_storage.volumes(**kwargs)
+            return [vol.to_dict() for vol in volumes]
+        except Exception as e:
+            logger.error(f"列出卷失败: {str(e)}")
+            return []
+
+    def get_volume(self, volume_id: str) -> Optional[Dict[str, Any]]:
+        """获取卷详情"""
+        try:
+            conn = self.get_connection()
+            volume = conn.block_storage.get_volume(volume_id)
+            return volume.to_dict() if volume else None
+        except Exception as e:
+            logger.error(f"获取卷详情失败: {str(e)}")
+            return None
+
+    def list_volume_snapshots(self, project_id: str = None, all_tenants: bool = False) -> List[Dict[str, Any]]:
+        """列出卷快照"""
+        try:
+            conn = self.get_connection()
+            if conn is None:
+                logger.warning("OpenStack连接不可用，返回空列表")
+                return []
+            
+            kwargs = {}
+            if all_tenants:
+                kwargs['all_tenants'] = True
+            if project_id:
+                kwargs['project_id'] = project_id
+                
+            snapshots = conn.block_storage.snapshots(**kwargs)
+            return [snap.to_dict() for snap in snapshots]
+        except Exception as e:
+            logger.error(f"列出卷快照失败: {str(e)}")
+            return []
+
+    def get_volume_snapshot(self, snapshot_id: str) -> Optional[Dict[str, Any]]:
+        """获取卷快照详情"""
+        try:
+            conn = self.get_connection()
+            snapshot = conn.block_storage.get_snapshot(snapshot_id)
+            return snapshot.to_dict() if snapshot else None
+        except Exception as e:
+            logger.error(f"获取卷快照详情失败: {str(e)}")
+            return None
+
+    def create_volume(self, name: str, size: int, **kwargs) -> Dict[str, Any]:
+        """创建卷"""
+        try:
+            conn = self.get_connection()
+            volume = conn.block_storage.create_volume(
+                name=name,
+                size=size,
+                **kwargs
+            )
+            logger.info(f"创建卷成功: {name} ({volume.id})")
+            return volume.to_dict()
+        except Exception as e:
+            logger.error(f"创建卷失败: {str(e)}")
+            raise SDKException(f"创建卷失败: {str(e)}")
+
+    def delete_volume(self, volume_id: str) -> bool:
+        """删除卷"""
+        try:
+            conn = self.get_connection()
+            conn.block_storage.delete_volume(volume_id)
+            logger.info(f"删除卷成功: {volume_id}")
+            return True
+        except Exception as e:
+            logger.error(f"删除卷失败: {str(e)}")
+            return False
+
+    def create_server_from_volume(self, name: str, volume_id: str, flavor_id: str,
+                                  network_ids: List[str], **kwargs) -> Optional[Dict[str, Any]]:
+        """从现有卷创建服务器实例
+        
+        使用现有卷作为启动盘，不创建新卷。
+        delete_on_termination=False：删除实例时保留卷。
+        """
+        try:
+            conn = self.get_connection()
+            
+            # 构建 block device mapping - 使用现有卷
+            # delete_on_termination=False: 删除实例时保留卷
+            block_device_mapping = [{
+                'boot_index': 0,
+                'uuid': volume_id,
+                'source_type': 'volume',
+                'destination_type': 'volume',
+                'delete_on_termination': False  # 强制不删除卷
+            }]
+            
+            # 构建网络配置
+            networks = [{'uuid': net_id} for net_id in network_ids]
+            
+            server = conn.compute.create_server(
+                name=name,
+                flavor_id=flavor_id,
+                networks=networks,
+                block_device_mapping=block_device_mapping,
+                **kwargs
+            )
+            
+            # 等待服务器创建完成
+            conn.compute.wait_for_server(server)
+            
+            logger.info(f"从卷创建服务器成功: {name} ({server.id})")
+            return server.to_dict()
+        except Exception as e:
+            logger.error(f"从卷创建服务器失败: {str(e)}")
+            raise SDKException(f"从卷创建服务器失败: {str(e)}")
+
+    def create_server_from_snapshot(self, name: str, snapshot_id: str, flavor_id: str,
+                                    network_ids: List[str], volume_size: int = None,
+                                    **kwargs) -> Optional[Dict[str, Any]]:
+        """从卷快照创建服务器实例
+        
+        从快照恢复创建新卷作为启动盘（这是OpenStack机制，无法避免）。
+        delete_on_termination=True：删除实例时也删除从快照创建的新卷。
+        
+        Args:
+            name: 服务器名称
+            snapshot_id: 卷快照ID
+            flavor_id: 实例规格ID
+            network_ids: 网络ID列表
+            volume_size: 可选，创建的卷大小（GB），默认使用快照原始大小
+        """
+        try:
+            conn = self.get_connection()
+            
+            # 构建 block device mapping - 从快照创建新卷
+            # delete_on_termination=True: 删除实例时也删除从快照创建的卷
+            block_device_mapping = [{
+                'boot_index': 0,
+                'uuid': snapshot_id,
+                'source_type': 'snapshot',
+                'destination_type': 'volume',
+                'delete_on_termination': True  # 强制删除新卷
+            }]
+            
+            # 如果指定了卷大小
+            if volume_size:
+                block_device_mapping[0]['volume_size'] = volume_size
+            
+            # 构建网络配置
+            networks = [{'uuid': net_id} for net_id in network_ids]
+            
+            server = conn.compute.create_server(
+                name=name,
+                flavor_id=flavor_id,
+                networks=networks,
+                block_device_mapping=block_device_mapping,
+                **kwargs
+            )
+            
+            # 等待服务器创建完成
+            conn.compute.wait_for_server(server)
+            
+            logger.info(f"从卷快照创建服务器成功: {name} ({server.id})")
+            return server.to_dict()
+        except Exception as e:
+            logger.error(f"从卷快照创建服务器失败: {str(e)}")
+            raise SDKException(f"从卷快照创建服务器失败: {str(e)}")
+
     # ==================== 网络管理 ====================
+
 
     def list_networks(self, project_id: str = None) -> List[Dict[str, Any]]:
         """列出网络"""
@@ -386,6 +728,58 @@ class OpenStackService:
         except Exception as e:
             logger.error(f"列出网络失败: {str(e)}")
             return []
+
+    def get_network_details(self, network_id: str) -> Optional[Dict[str, Any]]:
+        """获取网络详细信息，包括子网"""
+        try:
+            conn = self.get_connection()
+            network = conn.network.get_network(network_id)
+            if not network:
+                return None
+            
+            network_dict = network.to_dict()
+            
+            # 获取网络的子网列表
+            subnets = list(conn.network.subnets(network_id=network_id))
+            network_dict['subnets'] = [subnet.to_dict() for subnet in subnets]
+            network_dict['subnet_count'] = len(subnets)
+            
+            # 确定网络类型
+            if network_dict.get('router:external', False):
+                network_dict['network_type'] = 'external'
+            elif network_dict.get('shared', False):
+                network_dict['network_type'] = 'shared'
+            else:
+                network_dict['network_type'] = 'private'
+            
+            return network_dict
+        except Exception as e:
+            logger.error(f"获取网络详情失败: {str(e)}")
+            return None
+
+    def list_subnets(self, network_id: str = None) -> List[Dict[str, Any]]:
+        """列出子网"""
+        try:
+            conn = self.get_connection()
+            if network_id:
+                subnets = conn.network.subnets(network_id=network_id)
+            else:
+                subnets = conn.network.subnets()
+            return [subnet.to_dict() for subnet in subnets]
+        except Exception as e:
+            logger.error(f"列出子网失败: {str(e)}")
+            return []
+    
+    def get_subnet_details(self, subnet_id: str) -> Optional[Dict[str, Any]]:
+        """获取子网详细信息"""
+        try:
+            conn = self.get_connection()
+            subnet = conn.network.get_subnet(subnet_id)
+            return subnet.to_dict() if subnet else None
+        except Exception as e:
+            logger.error(f"获取子网详情失败: {str(e)}")
+            return None
+
 
     def create_network(self, name: str, project_id: str = None, **kwargs) -> Dict[str, Any]:
         """创建网络"""
@@ -401,6 +795,167 @@ class OpenStackService:
         except Exception as e:
             logger.error(f"创建网络失败: {str(e)}")
             raise SDKException(f"创建网络失败: {str(e)}")
+
+    # ==================== 浮动IP管理 ====================
+
+    def list_floating_ips(self, project_id: str = None) -> List[Dict[str, Any]]:
+        """列出浮动IP"""
+        try:
+            conn = self.get_connection()
+            if project_id:
+                floating_ips = conn.network.ips(project_id=project_id)
+            else:
+                floating_ips = conn.network.ips()
+            
+            result = []
+            for fip in floating_ips:
+                fip_dict = fip.to_dict()
+                # 添加状态字段
+                if fip_dict.get('port_id'):
+                    fip_dict['status'] = 'associated'
+                else:
+                    fip_dict['status'] = 'available'
+                result.append(fip_dict)
+            
+            return result
+        except Exception as e:
+            logger.error(f"列出浮动IP失败: {str(e)}")
+            return []
+
+    def allocate_floating_ip(self, network_id: str, project_id: str = None) -> Dict[str, Any]:
+        """分配浮动IP"""
+        try:
+            conn = self.get_connection()
+            floating_ip = conn.network.create_ip(
+                floating_network_id=network_id,
+                project_id=project_id
+            )
+            logger.info(f"分配浮动IP成功: {floating_ip.floating_ip_address} ({floating_ip.id})")
+            return floating_ip.to_dict()
+        except Exception as e:
+            logger.error(f"分配浮动IP失败: {str(e)}")
+            raise SDKException(f"分配浮动IP失败: {str(e)}")
+
+    def associate_floating_ip(self, floating_ip_id: str, port_id: str) -> bool:
+        """绑定浮动IP到端口"""
+        try:
+            conn = self.get_connection()
+            conn.network.update_ip(floating_ip_id, port_id=port_id)
+            logger.info(f"绑定浮动IP成功: {floating_ip_id} -> port {port_id}")
+            return True
+        except Exception as e:
+            logger.error(f"绑定浮动IP失败: {str(e)}")
+            raise SDKException(f"绑定浮动IP失败: {str(e)}")
+
+    def disassociate_floating_ip(self, floating_ip_id: str) -> bool:
+        """解绑浮动IP"""
+        try:
+            conn = self.get_connection()
+            conn.network.update_ip(floating_ip_id, port_id=None)
+            logger.info(f"解绑浮动IP成功: {floating_ip_id}")
+            return True
+        except Exception as e:
+            logger.error(f"解绑浮动IP失败: {str(e)}")
+            raise SDKException(f"解绑浮动IP失败: {str(e)}")
+
+    def release_floating_ip(self, floating_ip_id: str) -> bool:
+        """释放浮动IP"""
+        try:
+            conn = self.get_connection()
+            conn.network.delete_ip(floating_ip_id)
+            logger.info(f"释放浮动IP成功: {floating_ip_id}")
+            return True
+        except Exception as e:
+            logger.error(f"释放浮动IP失败: {str(e)}")
+            return False
+
+    def get_server_ports(self, server_id: str) -> List[Dict[str, Any]]:
+        """获取服务器的网络端口"""
+        try:
+            conn = self.get_connection()
+            ports = list(conn.network.ports(device_id=server_id))
+            return [port.to_dict() for port in ports]
+        except Exception as e:
+            logger.error(f"获取服务器端口失败: {str(e)}")
+            return []
+
+    # ==================== 安全组管理 ====================
+
+    def list_security_groups(self, project_id: str = None) -> List[Dict[str, Any]]:
+        """列出安全组"""
+        try:
+            conn = self.get_connection()
+            if project_id:
+                security_groups = conn.network.security_groups(project_id=project_id)
+            else:
+                security_groups = conn.network.security_groups()
+            return [sg.to_dict() for sg in security_groups]
+        except Exception as e:
+            logger.error(f"列出安全组失败: {str(e)}")
+            return []
+
+    def get_security_group(self, sg_id: str) -> Optional[Dict[str, Any]]:
+        """获取安全组详情"""
+        try:
+            conn = self.get_connection()
+            sg = conn.network.get_security_group(sg_id)
+            return sg.to_dict() if sg else None
+        except Exception as e:
+            logger.error(f"获取安全组详情失败: {str(e)}")
+            return None
+
+    def create_security_group(self, name: str, description: str = "", project_id: str = None) -> Dict[str, Any]:
+        """创建安全组"""
+        try:
+            conn = self.get_connection()
+            sg = conn.network.create_security_group(
+                name=name,
+                description=description,
+                project_id=project_id
+            )
+            logger.info(f"创建安全组成功: {sg.name} ({sg.id})")
+            return sg.to_dict()
+        except Exception as e:
+            logger.error(f"创建安全组失败: {str(e)}")
+            raise SDKException(f"创建安全组失败: {str(e)}")
+
+    def delete_security_group(self, sg_id: str) -> bool:
+        """删除安全组"""
+        try:
+            conn = self.get_connection()
+            conn.network.delete_security_group(sg_id)
+            logger.info(f"删除安全组成功: {sg_id}")
+            return True
+        except Exception as e:
+            logger.error(f"删除安全组失败: {str(e)}")
+            return False
+
+    def create_security_group_rule(self, sg_id: str, **kwargs) -> Dict[str, Any]:
+        """创建安全组规则"""
+        try:
+            conn = self.get_connection()
+            rule_data = {
+                'security_group_id': sg_id,
+                **kwargs
+            }
+            rule = conn.network.create_security_group_rule(**rule_data)
+            logger.info(f"创建安全组规则成功: {rule.id}")
+            return rule.to_dict()
+        except Exception as e:
+            logger.error(f"创建安全组规则失败: {str(e)}")
+            raise SDKException(f"创建安全组规则失败: {str(e)}")
+
+    def delete_security_group_rule(self, rule_id: str) -> bool:
+        """删除安全组规则"""
+        try:
+            conn = self.get_connection()
+            conn.network.delete_security_group_rule(rule_id)
+            logger.info(f"删除安全组规则成功: {rule_id}")
+            return True
+        except Exception as e:
+            logger.error(f"删除安全组规则失败: {str(e)}")
+            return False
+
 
     # ==================== 配额管理 ====================
 
@@ -530,8 +1085,14 @@ class OpenStackService:
             logger.error(f"重启服务器失败: {str(e)}")
             return False
 
-    def resize_server(self, server_id: str, new_flavor_id: str) -> bool:
-        """调整服务器规格"""
+    def resize_server(self, server_id: str, new_flavor_id: str, auto_confirm: bool = True) -> bool:
+        """调整服务器规格
+        
+        Args:
+            server_id: 服务器ID
+            new_flavor_id: 新的Flavor ID
+            auto_confirm: 是否自动确认resize（默认True保持向后兼容）
+        """
         try:
             conn = self.get_connection()
             
@@ -539,11 +1100,12 @@ class OpenStackService:
             conn.compute.resize_server(server_id, new_flavor_id)
             logger.info(f"服务器 {server_id} resize 操作已提交，新flavor: {new_flavor_id}")
             
-            # 等待 resize 完成（状态变为 VERIFY_RESIZE）
-            # 注意：某些 OpenStack 版本可能需要手动确认 resize
-            server = conn.compute.get_server(server_id)
+            if not auto_confirm:
+                # 不自动确认，返回成功（状态会变为VERIFY_RESIZE）
+                return True
             
-            # 等待状态变化，最多等待 5 分钟
+            # 等待 resize 完成（状态变为 VERIFY_RESIZE）
+            import time
             max_wait = 300  # 300秒 = 5分钟
             wait_interval = 5
             elapsed = 0
@@ -553,9 +1115,10 @@ class OpenStackService:
                 status = server.status.upper()
                 
                 if status == 'VERIFY_RESIZE':
-                    # resize 完成，需要确认
-                    logger.info(f"服务器 {server_id} resize 完成，等待确认")
-                    break
+                    # resize 完成，确认
+                    conn.compute.confirm_server_resize(server_id)
+                    logger.info(f"服务器 {server_id} resize 已自动确认")
+                    return True
                 elif status == 'ERROR':
                     logger.error(f"服务器 {server_id} resize 失败")
                     return False
@@ -564,31 +1127,38 @@ class OpenStackService:
                     logger.info(f"服务器 {server_id} resize 已自动确认")
                     return True
                     
-                import time
                 time.sleep(wait_interval)
                 elapsed += wait_interval
             
-            # 如果是 VERIFY_RESIZE 状态，确认 resize
-            if server.status.upper() == 'VERIFY_RESIZE':
-                conn.compute.confirm_server_resize(server_id)
-                logger.info(f"确认服务器 {server_id} resize")
-                
-                # 等待变为 ACTIVE
-                elapsed = 0
-                while elapsed < 60:
-                    server = conn.compute.get_server(server_id)
-                    if server.status.upper() == 'ACTIVE':
-                        logger.info(f"服务器 {server_id} resize 完成并已激活")
-                        return True
-                    time.sleep(5)
-                    elapsed += 5
-            
-            logger.info(f"服务器 {server_id} resize 操作完成")
+            logger.warning(f"服务器 {server_id} resize 等待超时")
             return True
             
         except Exception as e:
             logger.error(f"调整服务器规格失败: {str(e)}")
             return False
+
+    def confirm_server_resize(self, server_id: str) -> bool:
+        """确认resize操作"""
+        try:
+            conn = self.get_connection()
+            conn.compute.confirm_server_resize(server_id)
+            logger.info(f"确认服务器 {server_id} resize")
+            return True
+        except Exception as e:
+            logger.error(f"确认resize失败: {str(e)}")
+            return False
+
+    def revert_server_resize(self, server_id: str) -> bool:
+        """回滚resize操作"""
+        try:
+            conn = self.get_connection()
+            conn.compute.revert_server_resize(server_id)
+            logger.info(f"回滚服务器 {server_id} resize")
+            return True
+        except Exception as e:
+            logger.error(f"回滚resize失败: {str(e)}")
+            return False
+
 
     def get_server_metrics(self, server_id: str) -> Dict[str, Any]:
         """获取服务器监控指标"""

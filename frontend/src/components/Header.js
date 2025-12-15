@@ -13,6 +13,7 @@ import {
   MenuUnfoldOutlined
 } from '@ant-design/icons';
 import { useNavigate } from 'react-router-dom';
+import api from '../services/api';
 
 const { Header } = Layout;
 
@@ -42,27 +43,17 @@ const AppHeader = ({ collapsed, onToggle }) => {
 
   const fetchSystemName = async () => {
     try {
-      const token = localStorage.getItem('access_token');
-      console.log('Fetching system name with token:', token ? 'exists' : 'missing');
+      console.log('Fetching system name...');
 
-      const response = await fetch('/api/system/settings/category/?name=system', {
-        headers: {
-          'Authorization': `Bearer ${token}`
-        }
-      });
+      // Use api.get which handles token refresh automatically
+      // api interceptor returns response.data directly
+      const data = await api.get('/system/settings/category/?name=system');
 
-      console.log('System name response status:', response.status);
+      console.log('System settings data:', data);
 
-      if (response.ok) {
-        const data = await response.json();
-        console.log('System settings data:', data);
-
-        if (data.settings && data.settings.systemName) {
-          console.log('Setting system name to:', data.settings.systemName);
-          setSystemName(data.settings.systemName);
-        }
-      } else {
-        console.error('Failed to fetch system name:', response.status);
+      if (data.settings && data.settings.systemName) {
+        console.log('Setting system name to:', data.settings.systemName);
+        setSystemName(data.settings.systemName);
       }
     } catch (error) {
       console.error('Failed to load system name:', error);

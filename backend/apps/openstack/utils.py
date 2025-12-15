@@ -196,7 +196,8 @@ def format_resource_data(data: Dict[str, Any]) -> Dict[str, Any]:
         return {}
 
     # 移除一些不必要的字段
-    excluded_fields = ['links', 'location', 'properties']
+    # 注意：保留 properties 字段，因为它包含 image_type 等重要信息
+    excluded_fields = ['links', 'location']
     formatted_data = {}
 
     for key, value in data.items():

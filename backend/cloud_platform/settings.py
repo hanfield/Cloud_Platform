@@ -19,6 +19,7 @@ ALLOWED_HOSTS = config('ALLOWED_HOSTS', default='localhost,127.0.0.1', cast=lamb
 
 # Application definition
 DJANGO_APPS = [
+    'daphne',  # Must be first for WebSocket/ASGI support
     'django.contrib.admin',
     'django.contrib.auth',
     'django.contrib.contenttypes',
@@ -31,6 +32,7 @@ THIRD_PARTY_APPS = [
     'rest_framework',
     'rest_framework_simplejwt',
     'corsheaders',
+    'channels',  # WebSocket support
     'django_filters',
 ]
 
@@ -81,6 +83,17 @@ TEMPLATES = [
 ]
 
 WSGI_APPLICATION = 'cloud_platform.wsgi.application'
+ASGI_APPLICATION = 'cloud_platform.asgi.application'
+
+# Channel Layers for WebSocket support
+CHANNEL_LAYERS = {
+    'default': {
+        'BACKEND': 'channels_redis.core.RedisChannelLayer',
+        'CONFIG': {
+            "hosts": [('127.0.0.1', 6379)],
+        },
+    },
+}
 
 # Database
 DATABASES = {
@@ -226,5 +239,6 @@ LOGGING = {
 # 确保日志目录存在
 os.makedirs(BASE_DIR / 'logs', exist_ok=True)
 
-# 加密配置
-ENCRYPTION_KEY = config('ENCRYPTION_KEY', default='your-32-character-encryption-key-here')
+# 加密配置 - 用于干系人电话和邮箱加密
+# 生产环境应在环境变量中设置 ENCRYPTION_KEY
+ENCRYPTION_KEY = config('ENCRYPTION_KEY', default='21snds0rUe6s76Dfn56Mo3u4oYC8OY8RhmweBEsgdus=')

@@ -4,8 +4,14 @@ import { UserOutlined, DesktopOutlined, ShoppingOutlined, PlusOutlined, Poweroff
 import { useLocation, useNavigate } from 'react-router-dom';
 import { PieChart, Pie, Cell, Tooltip, Legend, ResponsiveContainer } from 'recharts';
 import tenantPortalService from '../services/tenantPortalService';
+// cloudService 不再需要 - VM 数据现在通过数据库同步
+import api from '../services/api';
 import VMDetailModal from '../components/VMDetailModal';
+import VMCreateWizard from '../components/VMCreateWizard';
 import moment from 'moment';
+import { useFlavors } from '../contexts/ResourceCacheContext';
+import useVMStatusWebSocket from '../hooks/useVMStatusWebSocket';
+
 
 const { Option } = Select;
 
@@ -14,6 +20,7 @@ const TenantPortal = () => {
   const [loading, setLoading] = useState(false);
   const [profile, setProfile] = useState(null);
   const [systems, setSystems] = useState([]);
+  // VM 数据现在通过 orders.vm_resources 从数据库获取，不再直接调用 OpenStack
   const [orders, setOrders] = useState([]);
   const [subscriptions, setSubscriptions] = useState(null);
   const [products, setProducts] = useState([]);
@@ -31,6 +38,9 @@ const TenantPortal = () => {
   const [resizeModalVisible, setResizeModalVisible] = useState(false);
   const [selectedVmForResize, setSelectedVmForResize] = useState(null);
 
+  // 使用缓存 hook 获取 flavors
+  const { flavors } = useFlavors();
+
   // 根据路由确定当前标签页
   const getActiveTabFromPath = () => {
     const path = location.pathname;
@@ -44,6 +54,7 @@ const TenantPortal = () => {
   const [activeTab, setActiveTab] = useState(getActiveTabFromPath());
   const [autoRefresh, setAutoRefresh] = useState(true);
   const [lastUpdate, setLastUpdate] = useState(new Date());
+
 
   useEffect(() => {
     setActiveTab(getActiveTabFromPath());
@@ -75,8 +86,15 @@ const TenantPortal = () => {
     try {
       const profileRes = await tenantPortalService.getTenantProfile();
       setProfile(profileRes);
+
       const systemsRes = await tenantPortalService.getSystemsOverview();
       setSystems(systemsRes.systems || []);
+
+      // 不再直接调用 OpenStack API，改为使用数据库数据（通过 orders.vm_resources）
+      // 这样更安全，租户用户不需要直接访问 OpenStack
+      // VMs 数据将从 ordersRes.orders 中的 vm_resources 获取
+
+
       const ordersRes = await tenantPortalService.getTenantOrders();
       // Deduplicate orders by system_id to prevent duplicate display
       const uniqueOrders = [];
@@ -88,6 +106,7 @@ const TenantPortal = () => {
         }
       });
       setOrders(uniqueOrders);
+
       const subsRes = await tenantPortalService.getTenantSubscriptions();
       setSubscriptions(subsRes);
       const productsRes = await tenantPortalService.getAvailableProducts();
@@ -100,36 +119,74 @@ const TenantPortal = () => {
     }
   }, []);
 
+  // WebSocket 实时状态更新 - 当其他用户操作 VM 时自动刷新
+  // 必须在 fetchAllData 定义之后使用，避免 stale closure
+  useEffect(() => {
+    // 使用 effect 而不是 useCallback 来避免依赖问题
+  }, []);
+
+  const handleWebSocketUpdate = useCallback((data) => {
+    console.log('收到 WebSocket VM 状态更新:', data);
+    // 刷新数据以显示最新状态
+    fetchAllData();
+    setLastUpdate(new Date());
+  }, [fetchAllData]);
+
+  useVMStatusWebSocket(handleWebSocketUpdate);
+
   const handleControlResource = async (resourceId, resourceType, action) => {
     try {
+      // 通过后端代理 API 控制资源（不再直接调用 OpenStack）
+      // 后端会处理权限验证、并发控制、操作日志等
       await tenantPortalService.controlResource({
         resource_id: resourceId,
         resource_type: resourceType,
         action: action
       });
+
       message.success(`${action === 'start' ? '启动' : action === 'stop' ? '停止' : '重启'}成功`);
       fetchAllData();
     } catch (error) {
-      message.error(`操作失败: ${error.message || '未知错误'}`);
+      // 处理并发冲突错误 (409 Conflict)
+      if (error.response?.status === 409) {
+        message.warning(error.response?.data?.error || '该虚拟机正在执行其他操作，请稍后重试');
+      } else {
+        message.error(`操作失败: ${error.response?.data?.error || error.message || '未知错误'}`);
+      }
     }
   };
+
 
   const handleDeleteVM = async (vmId) => {
     try {
-      await tenantPortalService.deleteVirtualMachine(vmId);
+      // 通过后端代理 API 删除（不再直接调用 OpenStack）
+      await tenantPortalService.controlResource({
+        resource_id: vmId,
+        resource_type: 'vm',
+        action: 'delete'
+      });
       message.success('虚拟机删除成功');
       fetchAllData();
     } catch (error) {
-      message.error(`删除失败: ${error.message || '未知错误'}`);
+      if (error.response?.status === 409) {
+        message.warning(error.response?.data?.error || '该虚拟机正在执行其他操作，请稍后重试');
+      } else {
+        message.error(`删除失败: ${error.response?.data?.error || error.message || '未知错误'}`);
+      }
     }
   };
 
+
   const handleOpenResizeModal = (vm) => {
     setSelectedVmForResize(vm);
+    // 从 flavor 获取当前配置（兼容多种数据结构）
+    const currentCpu = vm.flavor?.vcpus || vm.cpu || 2;
+    const currentMemory = vm.flavor?.ram ? Math.round(vm.flavor.ram / 1024) : (vm.memory || 4);
+    const currentDisk = vm.flavor?.disk || vm.disk || 100;
     resizeForm.setFieldsValue({
-      cpu_cores: vm.cpu,
-      memory_gb: vm.memory,
-      disk_gb: vm.disk
+      cpu_cores: currentCpu,
+      memory_gb: currentMemory,
+      disk_gb: currentDisk
     });
     setResizeModalVisible(true);
   };
@@ -137,7 +194,13 @@ const TenantPortal = () => {
   const handleResizeVM = async () => {
     try {
       const values = await resizeForm.validateFields();
-      await tenantPortalService.resizeVirtualMachine(selectedVmForResize.id, values);
+      // 使用 openstack_id 调用 OpenStack API
+      const openstackId = selectedVmForResize.openstack_id || selectedVmForResize.id;
+      await api.post(`/openstack/servers/${openstackId}/resize/`, {
+        cpu_cores: values.cpu_cores,
+        memory_gb: values.memory_gb
+      });
+
       message.success('虚拟机配置调整成功');
       setResizeModalVisible(false);
       resizeForm.resetFields();
@@ -211,17 +274,18 @@ const TenantPortal = () => {
     }
   };
 
-  // 计算虚拟机状态统计
+  // 计算虚拟机状态统计 - 使用数据库数据（通过 orders.vm_resources）
   const getVMStatusStats = () => {
-    const allVMs = [];
-    orders.forEach(order => {
-      if (order.vm_resources) {
-        allVMs.push(...order.vm_resources);
-      }
-    });
+    // 从所有订单的 vm_resources 中收集 VM 数据
+    const allVMs = orders.flatMap(order => order.vm_resources || []);
 
     const stats = allVMs.reduce((acc, vm) => {
-      const status = vm.status || 'unknown';
+      // 处理数据库中的状态格式
+      let status = vm.status?.toLowerCase() || 'unknown';
+      // 标准化状态名称
+      if (status === 'active') status = 'running';
+      else if (status === 'shutoff') status = 'stopped';
+
       acc[status] = (acc[status] || 0) + 1;
       return acc;
     }, {});
@@ -242,6 +306,7 @@ const TenantPortal = () => {
       color: statusConfig[status]?.color || '#d9d9d9'
     }));
   };
+
 
   // 虚拟机状态饼图组件
   const VMStatusChart = () => {
@@ -504,17 +569,42 @@ const TenantPortal = () => {
   };
 
   const vmColumns = [
-    { title: '虚拟机名称', dataIndex: 'name', key: 'name' },
-    { title: 'IP地址', dataIndex: 'ip', key: 'ip' },
-    { title: '数据中心', dataIndex: 'data_center_type_display', key: 'data_center_type' },
-    { title: '可用区', dataIndex: 'availability_zone', key: 'availability_zone' },
-    { title: '运行时长', dataIndex: 'uptime', key: 'uptime' },
-    { title: '操作系统', dataIndex: 'os_type', key: 'os_type' },
-    { title: '状态', dataIndex: 'status', key: 'status', render: (status, record) => <Tag color={status === 'running' ? 'green' : 'red'}>{record.status_display}</Tag> },
-    { title: 'CPU', dataIndex: 'cpu', key: 'cpu', render: (cpu) => `${cpu}核` },
-    { title: '内存', dataIndex: 'memory', key: 'memory', render: (mem) => `${mem}GB` },
-    { title: '磁盘', dataIndex: 'disk', key: 'disk', render: (disk) => `${disk}GB` },
-    { title: '最新启动时间', dataIndex: 'last_start_time', key: 'last_start_time', render: (time) => time || '-' },
+    { title: '虚拟机名称', dataIndex: 'name', key: 'name', sorter: (a, b) => (a.name || '').localeCompare(b.name || '') },
+    { title: 'IP地址', dataIndex: 'ip', key: 'ip', sorter: (a, b) => (a.ip || '').localeCompare(b.ip || '') },
+    { title: '数据中心', dataIndex: 'data_center_type_display', key: 'data_center_type', sorter: (a, b) => (a.data_center_type_display || '').localeCompare(b.data_center_type_display || '') },
+    { title: '可用区', dataIndex: 'availability_zone', key: 'availability_zone', sorter: (a, b) => (a.availability_zone || '').localeCompare(b.availability_zone || '') },
+    { title: '运行时长', dataIndex: 'uptime', key: 'uptime', sorter: (a, b) => (a.uptime || '').localeCompare(b.uptime || '') },
+    { title: '操作系统', dataIndex: 'os_type', key: 'os_type', sorter: (a, b) => (a.os_type || '').localeCompare(b.os_type || '') },
+    { title: '状态', dataIndex: 'status', key: 'status', sorter: (a, b) => (a.status || '').localeCompare(b.status || ''), render: (status, record) => <Tag color={status === 'running' ? 'green' : 'red'}>{record.status_display}</Tag> },
+    {
+      title: 'CPU',
+      key: 'cpu',
+      sorter: (a, b) => (a.flavor?.vcpus || a.cpu || 0) - (b.flavor?.vcpus || b.cpu || 0),
+      render: (_, record) => {
+        // OpenStack API 已经嵌入了完整的 flavor 对象，直接使用
+        const vcpus = record.flavor?.vcpus;
+        return vcpus ? `${vcpus}核` : (record.cpu ? `${record.cpu}核` : '-');
+      }
+    },
+    {
+      title: '内存',
+      key: 'memory',
+      sorter: (a, b) => (a.flavor?.ram || a.memory || 0) - (b.flavor?.ram || b.memory || 0),
+      render: (_, record) => {
+        const ram = record.flavor?.ram;
+        return ram ? `${(ram / 1024).toFixed(1)}GB` : (record.memory ? `${record.memory}GB` : '-');
+      }
+    },
+    {
+      title: '磁盘',
+      key: 'disk',
+      sorter: (a, b) => (a.flavor?.disk || a.disk || 0) - (b.flavor?.disk || b.disk || 0),
+      render: (_, record) => {
+        const disk = record.flavor?.disk;
+        return disk ? `${disk}GB` : (record.disk ? `${record.disk}GB` : '-');
+      }
+    },
+    { title: '最新启动时间', dataIndex: 'last_start_time', key: 'last_start_time', sorter: (a, b) => (a.last_start_time || '').localeCompare(b.last_start_time || ''), render: (time) => time || '-' },
     {
       title: '操作',
       key: 'action',
@@ -547,7 +637,7 @@ const TenantPortal = () => {
           <Popconfirm
             title="确定删除此虚拟机吗？"
             description="删除后数据将无法恢复，请谨慎操作"
-            onConfirm={() => handleDeleteVM(record.id)}
+            onConfirm={() => handleDeleteVM(record.openstack_id || record.id)}
             okText="确定"
             cancelText="取消"
             okButtonProps={{ danger: true }}
@@ -591,20 +681,26 @@ const TenantPortal = () => {
             <Space>
               <Tag color={autoRefresh ? 'green' : 'default'}>
                 {autoRefresh ? <SyncOutlined spin /> : <SyncOutlined />}
-                {autoRefresh ? ' 自动刷新中' : ' 已暂停'}
+                {autoRefresh ? ' 每5秒自动刷新' : ' 自动刷新已关闭'}
               </Tag>
               <Button
                 size="small"
                 icon={autoRefresh ? <StopOutlined /> : <PlayCircleOutlined />}
                 onClick={() => setAutoRefresh(!autoRefresh)}
+                title={autoRefresh ? '关闭后不再自动刷新数据' : '开启后每5秒自动刷新数据'}
               >
-                {autoRefresh ? '暂停刷新' : '开启刷新'}
+                {autoRefresh ? '关闭自动刷新' : '开启自动刷新'}
               </Button>
-              <Button size="small" icon={<ReloadOutlined />} onClick={fetchAllData}>
-                立即刷新
+              <Button
+                size="small"
+                icon={<ReloadOutlined />}
+                onClick={fetchAllData}
+                title="不等待自动更新，立即从服务器获取最新数据"
+              >
+                手动刷新
               </Button>
               <span style={{ fontSize: '12px', color: '#999' }}>
-                最后更新: {lastUpdate.toLocaleTimeString()}
+                上次更新: {lastUpdate.toLocaleTimeString()}
               </span>
             </Space>
           }
@@ -617,40 +713,60 @@ const TenantPortal = () => {
           <Button type="primary" icon={<PlusOutlined />} onClick={() => setSystemModalVisible(true)}>创建新系统</Button>
         </div>
 
-        {/* 各系统的虚拟机列表 */}
-        {orders.map((order) => (
-          <Card
-            key={order.system_id}
-            title={`${order.system_name} - 资源详情`}
-            extra={<Button type="primary" icon={<PlusOutlined />} onClick={() => openCreateVMModal(order.system_id)}>创建虚拟机</Button>}
-            style={{ marginBottom: 16 }}
-          >
-            <h4>虚拟机资源</h4>
-            <Table dataSource={order.vm_resources} rowKey="name" columns={vmColumns} pagination={false} />
+        {/* 各系统的虚拟机列表 - 合并本地数据与 OpenStack 实时数据 */}
+        {orders.map((order) => {
+          // 使用从数据库同步的 vm_resources 数据
+          // 不再直接调用 OpenStack API，所有数据通过后端同步到数据库
+          const localVMs = order.vm_resources || [];
 
-            <Divider />
+          // 直接使用数据库数据，添加必要的字段映射
+          const displayVMs = localVMs.map(vm => ({
+            ...vm,
+            database_id: vm.id, // 本地数据库ID，用于快照、监控和操作功能
+            ip: vm.ip || vm.ip_address || '-',
+            status_display: vm.status === 'running' ? '运行中' :
+              (vm.status === 'stopped' ? '已停止' :
+                (vm.status === 'paused' ? '已暂停' :
+                  (vm.status === 'error' ? '异常' : vm.status))),
+            availability_zone: vm.availability_zone || '-',
+          }));
 
-            <Row gutter={16}>
-              <Col span={12}>
-                <h4>存储资源</h4>
-                <Descriptions bordered size="small">
-                  <Descriptions.Item label="订阅容量">{order.storage.subscribed_capacity} GB</Descriptions.Item>
-                  <Descriptions.Item label="已用容量">{order.storage.used_capacity} GB</Descriptions.Item>
-                  <Descriptions.Item label="可用容量">{order.storage.available_capacity} GB</Descriptions.Item>
-                </Descriptions>
-              </Col>
-              <Col span={12}>
-                <h4>网络资源</h4>
-                <Descriptions bordered size="small">
-                  <Descriptions.Item label="线路类型">{order.network.line_type}</Descriptions.Item>
-                  <Descriptions.Item label="带宽">{order.network.bandwidth} Mbps</Descriptions.Item>
-                  <Descriptions.Item label="开始时间">{order.network.start_time}</Descriptions.Item>
-                  <Descriptions.Item label="状态"><Tag color="green">{order.network.status}</Tag></Descriptions.Item>
-                </Descriptions>
-              </Col>
-            </Row>
-          </Card>
-        ))}
+
+
+          return (
+            <Card
+              key={order.system_id}
+              title={`${order.system_name} - 资源详情`}
+              extra={<Button type="primary" icon={<PlusOutlined />} onClick={() => openCreateVMModal(order.system_id)}>创建虚拟机</Button>}
+              style={{ marginBottom: 16 }}
+            >
+              <h4>虚拟机资源</h4>
+              <Table dataSource={displayVMs} rowKey="name" columns={vmColumns} pagination={false} />
+
+              <Divider />
+
+              <Row gutter={16}>
+                <Col span={12}>
+                  <h4>存储资源</h4>
+                  <Descriptions bordered size="small">
+                    <Descriptions.Item label="订阅容量">{order.storage.subscribed_capacity} GB</Descriptions.Item>
+                    <Descriptions.Item label="已用容量">{order.storage.used_capacity} GB</Descriptions.Item>
+                    <Descriptions.Item label="可用容量">{order.storage.available_capacity} GB</Descriptions.Item>
+                  </Descriptions>
+                </Col>
+                <Col span={12}>
+                  <h4>网络资源</h4>
+                  <Descriptions bordered size="small">
+                    <Descriptions.Item label="线路类型">{order.network.line_type}</Descriptions.Item>
+                    <Descriptions.Item label="带宽">{order.network.bandwidth} Mbps</Descriptions.Item>
+                    <Descriptions.Item label="开始时间">{order.network.start_time}</Descriptions.Item>
+                    <Descriptions.Item label="状态"><Tag color="green">{order.network.status}</Tag></Descriptions.Item>
+                  </Descriptions>
+                </Col>
+              </Row>
+            </Card>
+          );
+        })}
 
         {orders.length === 0 && (
           <div style={{ textAlign: 'center', padding: '40px', color: '#999' }}>
@@ -746,123 +862,24 @@ const TenantPortal = () => {
         </Form>
       </Modal>
 
-      {/* 创建虚拟机模态框 */}
-      <Modal
-        title="创建虚拟机"
-        open={vmModalVisible}
-        onOk={handleCreateVM}
-        onCancel={() => { setVmModalVisible(false); vmForm.resetFields(); setSelectedSystemId(null); }}
-        width={600}
-        destroyOnClose
-      >
-        <Form form={vmForm} layout="vertical">
-          <Form.Item name="name" label="虚拟机名称" rules={[{ required: true, message: '请输入虚拟机名称' }]}>
-            <Input placeholder="例如: Web-Server-01" />
-          </Form.Item>
-
-          <Form.Item
-            name="system_id"
-            label="所属信息系统"
-            initialValue={selectedSystemId}
-            rules={[{ required: true, message: '请选择所属信息系统' }]}
-          >
-            <Select placeholder="请选择信息系统" disabled={!!selectedSystemId}>
-              {systems.map(sys => (
-                <Option key={sys.id} value={sys.id}>{sys.name}</Option>
-              ))}
-            </Select>
-          </Form.Item>
-
-          <Row gutter={16}>
-            <Col span={8}>
-              <Form.Item name="cpu_cores" label="CPU核数" initialValue={2} rules={[{ required: true, message: '请输入CPU核数' }]}>
-                <InputNumber min={1} max={64} style={{ width: '100%' }} />
-              </Form.Item>
-            </Col>
-            <Col span={8}>
-              <Form.Item name="memory_gb" label="内存(GB)" initialValue={4} rules={[{ required: true, message: '请输入内存大小' }]}>
-                <InputNumber min={1} max={512} style={{ width: '100%' }} />
-              </Form.Item>
-            </Col>
-            <Col span={8}>
-              <Form.Item name="disk_gb" label="磁盘(GB)" initialValue={100} rules={[{ required: true, message: '请输入磁盘大小' }]}>
-                <InputNumber min={10} max={10000} style={{ width: '100%' }} />
-              </Form.Item>
-            </Col>
-          </Row>
-
-          <Row gutter={16}>
-            <Col span={12}>
-              <Form.Item name="os_type" label="操作系统" initialValue="Linux" rules={[{ required: true, message: '请选择操作系统' }]}>
-                <Select>
-                  <Option value="Linux">Linux</Option>
-                  <Option value="Windows Server">Windows Server</Option>
-                  <Option value="CentOS">CentOS</Option>
-                  <Option value="Ubuntu">Ubuntu</Option>
-                  <Option value="Debian">Debian</Option>
-                </Select>
-              </Form.Item>
-            </Col>
-            <Col span={12}>
-              <Form.Item name="os_version" label="系统版本">
-                <Input placeholder="例如: 20.04" />
-              </Form.Item>
-            </Col>
-          </Row>
-
-          <Row gutter={16}>
-            <Col span={12}>
-              <Form.Item name="data_center_type" label="数据中心类型" initialValue="production" rules={[{ required: true, message: '请选择数据中心类型' }]}>
-                <Select>
-                  <Option value="production">生产环境</Option>
-                  <Option value="local_dr">同城灾备</Option>
-                  <Option value="remote_dr">异地灾备</Option>
-                  <Option value="development">开发环境</Option>
-                  <Option value="testing">测试环境</Option>
-                </Select>
-              </Form.Item>
-            </Col>
-            <Col span={12}>
-              <Form.Item name="availability_zone" label="可用区">
-                <Select placeholder="请选择可用区" allowClear>
-                  {availabilityZones.map(zone => (
-                    <Option key={zone.name} value={zone.name}>{zone.name}</Option>
-                  ))}
-                </Select>
-              </Form.Item>
-            </Col>
-          </Row>
-
-          <Form.Item name="region" label="区域">
-            <Input placeholder="例如: 北京一区" />
-          </Form.Item>
-
-          <Form.Item name="ip_address" label="IP地址">
-            <Input placeholder="例如: 192.168.1.100 (可选)" />
-          </Form.Item>
-
-          <Row gutter={16}>
-            <Col span={12}>
-              <Form.Item name="runtime_start" label="运行开始时间">
-                <TimePicker format="HH:mm" style={{ width: '100%' }} placeholder="选择开始时间" />
-              </Form.Item>
-            </Col>
-            <Col span={12}>
-              <Form.Item name="runtime_end" label="运行结束时间">
-                <TimePicker format="HH:mm" style={{ width: '100%' }} placeholder="选择结束时间" />
-              </Form.Item>
-            </Col>
-          </Row>
-
-          <Form.Item name="description" label="描述">
-            <Input.TextArea rows={3} placeholder="虚拟机用途描述" />
-          </Form.Item>
-        </Form>
-      </Modal>
+      {/* 创建虚拟机向导 - OpenStack风格 */}
+      <VMCreateWizard
+        visible={vmModalVisible}
+        onCancel={() => {
+          setVmModalVisible(false);
+          setSelectedSystemId(null);
+        }}
+        onSuccess={() => {
+          fetchAllData();
+        }}
+        systems={systems}
+        selectedSystemId={selectedSystemId}
+      />
 
       <VMDetailModal
         visible={vmDetailModalVisible}
         vm={selectedVm}
+        flavors={flavors}
         onClose={() => {
           setVmDetailModalVisible(false);
           setSelectedVm(null);

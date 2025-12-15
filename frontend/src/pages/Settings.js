@@ -13,6 +13,7 @@ import {
   SafetyOutlined,
   UserOutlined
 } from '@ant-design/icons';
+import api from '../services/api';
 
 const { TabPane } = Tabs;
 const { TextArea } = Input;
@@ -77,15 +78,9 @@ const Settings = () => {
   const fetchAllSettings = async () => {
     try {
       // 获取通用设置
-      const response = await fetch('/api/system/settings/', {
-        headers: {
-          'Authorization': `Bearer ${localStorage.getItem('access_token')}`
-        }
-      });
+      const data = await api.get('/system/settings/');
 
-      if (response.ok) {
-        const data = await response.json();
-
+      if (data) {
         // 更新各个分类的设置
         if (data.system && Object.keys(data.system).length > 0) {
           setSystemSettings(prev => ({ ...prev, ...data.system }));
@@ -100,19 +95,11 @@ const Settings = () => {
           notificationForm.setFieldsValue(data.notification);
         }
 
-        // 获取数据库真实配置（使用专用 API）
+        // 获取数据库真实配置
         try {
-          const dbResponse = await fetch('/api/system/settings/database/config/', {
-            headers: {
-              'Authorization': `Bearer ${localStorage.getItem('access_token')}`
-            }
-          });
-
-          if (dbResponse.ok) {
-            const dbData = await dbResponse.json();
+          const dbData = await api.get('/system/settings/database/config/');
+          if (dbData) {
             const config = dbData.config || {};
-
-            // 将后端配置格式转换为前端格式
             const mappedDBConfig = {
               dbType: (config.ENGINE || '').includes('postgresql') ? 'postgresql' :
                 (config.ENGINE || '').includes('mysql') ? 'mysql' : 'sqlite',
@@ -120,10 +107,9 @@ const Settings = () => {
               dbPort: config.PORT || 5432,
               dbName: config.NAME || '',
               dbUser: config.USER || '',
-              maxConnections: 100,  // 这些可以从配置中读取
+              maxConnections: 100,
               connectionTimeout: 30
             };
-
             setDatabaseSettings(prev => ({ ...prev, ...mappedDBConfig }));
             databaseForm.setFieldsValue(mappedDBConfig);
           }
@@ -131,32 +117,22 @@ const Settings = () => {
           console.error('Failed to load database settings:', dbError);
         }
 
-        // 获取 OpenStack 真实配置（使用专用 API）
+        // 获取 OpenStack 真实配置
         try {
-          const openstackResponse = await fetch('/api/system/settings/openstack/config/', {
-            headers: {
-              'Authorization': `Bearer ${localStorage.getItem('access_token')}`
-            }
-          });
-
-          if (openstackResponse.ok) {
-            const openstackData = await openstackResponse.json();
+          const openstackData = await api.get('/system/settings/openstack/config/');
+          if (openstackData) {
             const config = openstackData.config || {};
-
-            // 将后端配置格式转换为前端格式
             const mappedConfig = {
               authUrl: config.AUTH_URL || '',
               username: config.USERNAME || '',
-              password: config.PASSWORD || '',  // 已掩码
+              password: config.PASSWORD || '',
               projectName: config.PROJECT_NAME || '',
               userDomain: config.USER_DOMAIN_NAME || '',
               projectDomain: config.PROJECT_DOMAIN_NAME || '',
               regionName: config.REGION_NAME || '',
               enableSync: true,
-              // 优先使用保存的设置，否则默认为30秒
               syncInterval: config.syncInterval || 30
             };
-
             setOpenstackSettings(prev => ({ ...prev, ...mappedConfig }));
             openstackForm.setFieldsValue(mappedConfig);
           }
@@ -173,19 +149,7 @@ const Settings = () => {
   const handleSaveSystemSettings = async (values) => {
     setLoading(true);
     try {
-      const response = await fetch('/api/system/settings/', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${localStorage.getItem('access_token')}`
-        },
-        body: JSON.stringify({ category: 'system', settings: values })
-      });
-
-      if (!response.ok) {
-        const errorData = await response.json().catch(() => ({}));
-        throw new Error(errorData.error || '保存失败');
-      }
+      await api.post('/system/settings/', { category: 'system', settings: values });
 
       message.success('系统设置保存成功');
 
@@ -208,30 +172,18 @@ const Settings = () => {
   const handleSaveDatabaseSettings = async (values) => {
     setLoading(true);
     try {
-      const response = await fetch('/api/system/settings/', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${localStorage.getItem('access_token')}`
-        },
-        body: JSON.stringify({
-          category: 'database',
-          settings: {
-            ENGINE: values.dbType === 'postgresql' ? 'django.db.backends.postgresql' :
-              values.dbType === 'mysql' ? 'django.db.backends.mysql' : 'django.db.backends.sqlite3',
-            NAME: values.dbName,
-            USER: values.dbUser,
-            PASSWORD: values.dbPassword, // 需要在表单中添加密码字段
-            HOST: values.dbHost,
-            PORT: values.dbPort
-          }
-        })
+      await api.post('/system/settings/', {
+        category: 'database',
+        settings: {
+          ENGINE: values.dbType === 'postgresql' ? 'django.db.backends.postgresql' :
+            values.dbType === 'mysql' ? 'django.db.backends.mysql' : 'django.db.backends.sqlite3',
+          NAME: values.dbName,
+          USER: values.dbUser,
+          PASSWORD: values.dbPassword, // 需要在表单中添加密码字段
+          HOST: values.dbHost,
+          PORT: values.dbPort
+        }
       });
-
-      if (!response.ok) {
-        const errorData = await response.json().catch(() => ({}));
-        throw new Error(errorData.error || '保存失败');
-      }
 
       message.success('数据库设置保存成功');
     } catch (error) {
@@ -245,19 +197,7 @@ const Settings = () => {
   const handleSaveOpenstackSettings = async (values) => {
     setLoading(true);
     try {
-      const response = await fetch('/api/system/settings/', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${localStorage.getItem('access_token')}`
-        },
-        body: JSON.stringify({ category: 'openstack', settings: values })
-      });
-
-      if (!response.ok) {
-        const errorData = await response.json().catch(() => ({}));
-        throw new Error(errorData.error || '保存失败');
-      }
+      await api.post('/system/settings/', { category: 'openstack', settings: values });
 
       message.success('OpenStack设置保存成功');
 
@@ -274,19 +214,7 @@ const Settings = () => {
   const handleSaveNotificationSettings = async (values) => {
     setLoading(true);
     try {
-      const response = await fetch('/api/system/settings/', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${localStorage.getItem('access_token')}`
-        },
-        body: JSON.stringify({ category: 'notification', settings: values })
-      });
-
-      if (!response.ok) {
-        const errorData = await response.json().catch(() => ({}));
-        throw new Error(errorData.error || '保存失败');
-      }
+      await api.post('/system/settings/', { category: 'notification', settings: values });
 
       message.success('通知设置保存成功');
     } catch (error) {
@@ -313,25 +241,12 @@ const Settings = () => {
   const handleTestOpenstackConnection = async () => {
     const hide = message.loading('正在测试连接...', 0);
     try {
-      const response = await fetch('/api/system/settings/openstack/test/', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${localStorage.getItem('access_token')}`
-        }
-      });
+      const data = await api.post('/system/settings/openstack/test/');
 
       hide();
-
-      if (response.ok) {
-        const data = await response.json();
-        message.success(`${data.message || 'OpenStack连接测试成功！'}`);
-        if (data.details) {
-          console.log('OpenStack 连接详情:', data.details);
-        }
-      } else {
-        const errorData = await response.json();
-        message.error(`连接测试失败: ${errorData.error || '未知错误'}`);
+      message.success(`${data.message || 'OpenStack连接测试成功！'}`);
+      if (data.details) {
+        console.log('OpenStack 连接详情:', data.details);
       }
     } catch (error) {
       hide();

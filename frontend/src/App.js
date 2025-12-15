@@ -27,6 +27,7 @@ import BillingManagement from './pages/BillingManagement';
 import OrderManagement from './pages/OrderManagement';
 import TenantBilling from './pages/TenantBilling';
 import TenantOrders from './pages/TenantOrders';
+import { ResourceCacheProvider } from './contexts/ResourceCacheContext';
 import './styles/main.css';
 import 'moment/locale/zh-cn';
 
@@ -103,36 +104,38 @@ function App() {
           },
         }}
       >
-        <Router>
-          <div className="app-container">
-            <AppHeader collapsed={collapsed} onToggle={toggleCollapsed} />
-            <Layout className="main-layout">
-              <Sidebar collapsed={collapsed} />
-              <Content
-                className={`content-area ${collapsed ? 'sidebar-collapsed' : ''}`}
-                style={{
-                  marginTop: 96,
-                  marginLeft: collapsed ? 96 : 272,
-                  transition: 'all 0.2s',
-                  paddingRight: 16
-                }}
-              >
-                <Routes>
-                  <Route path="/" element={<Navigate to="/tenant-portal" replace />} />
-                  <Route path="/login" element={<Navigate to="/tenant-portal" replace />} />
-                  <Route path="/tenant-portal" element={<TenantPortal />} />
-                  <Route path="/tenant-info" element={<TenantPortal />} />
-                  <Route path="/tenant-systems" element={<TenantPortal />} />
-                  <Route path="/tenant-products" element={<TenantPortal />} />
-                  <Route path="/tenant-billing" element={<TenantBilling />} />
-                  <Route path="/tenant-orders" element={<TenantOrders />} />
-                  <Route path="/profile" element={<Profile />} />
-                  <Route path="*" element={<Navigate to="/tenant-portal" replace />} />
-                </Routes>
-              </Content>
-            </Layout>
-          </div>
-        </Router>
+        <ResourceCacheProvider>
+          <Router>
+            <div className="app-container">
+              <AppHeader collapsed={collapsed} onToggle={toggleCollapsed} />
+              <Layout className="main-layout">
+                <Sidebar collapsed={collapsed} />
+                <Content
+                  className={`content-area ${collapsed ? 'sidebar-collapsed' : ''}`}
+                  style={{
+                    marginTop: 96,
+                    marginLeft: collapsed ? 96 : 272,
+                    transition: 'all 0.2s',
+                    paddingRight: 16
+                  }}
+                >
+                  <Routes>
+                    <Route path="/" element={<Navigate to="/tenant-portal" replace />} />
+                    <Route path="/login" element={<Navigate to="/tenant-portal" replace />} />
+                    <Route path="/tenant-portal" element={<TenantPortal />} />
+                    <Route path="/tenant-info" element={<TenantPortal />} />
+                    <Route path="/tenant-systems" element={<TenantPortal />} />
+                    <Route path="/tenant-products" element={<TenantPortal />} />
+                    <Route path="/tenant-billing" element={<TenantBilling />} />
+                    <Route path="/tenant-orders" element={<TenantOrders />} />
+                    <Route path="/profile" element={<Profile />} />
+                    <Route path="*" element={<Navigate to="/tenant-portal" replace />} />
+                  </Routes>
+                </Content>
+              </Layout>
+            </div>
+          </Router>
+        </ResourceCacheProvider>
       </ConfigProvider>
     );
   }
@@ -170,45 +173,47 @@ function App() {
         }
       }}
     >
-      <Router>
-        <div className="app-container">
-          <AppHeader collapsed={collapsed} onToggle={toggleCollapsed} />
+      <ResourceCacheProvider>
+        <Router>
+          <div className="app-container">
+            <AppHeader collapsed={collapsed} onToggle={toggleCollapsed} />
 
-          <Layout className="main-layout">
-            <Sidebar collapsed={collapsed} />
+            <Layout className="main-layout">
+              <Sidebar collapsed={collapsed} />
 
-            <Content
-              className={`content-area ${collapsed ? 'sidebar-collapsed' : ''}`}
-              style={{
-                marginTop: 96, // 16px + 64px + 16px
-                marginLeft: collapsed ? 96 : 272, // 16px + width + 16px
-                transition: 'all 0.2s',
-                paddingRight: 16 // Add right padding to balance
-              }}
-            >
-              <Routes>
-                <Route path="/" element={<Navigate to="/dashboard" replace />} />
-                <Route path="/login" element={<Navigate to="/dashboard" replace />} />
-                <Route path="/dashboard" element={<Dashboard />} />
-                <Route path="/tenants" element={<TenantManagement />} />
-                <Route path="/users" element={<UserManagement />} />
-                <Route path="/contracts" element={<ContractManagement />} />
-                <Route path="/information-systems" element={<InformationSystemManagement />} />
-                <Route path="/products" element={<ProductManagement />} />
-                <Route path="/services" element={<ServiceManagement />} />
-                <Route path="/assets" element={<AssetManagement />} />
-                <Route path="/cloud-resources/*" element={<CloudResources />} />
-                <Route path="/billing" element={<BillingManagement />} />
-                <Route path="/orders" element={<OrderManagement />} />
-                <Route path="/tenant-portal" element={<TenantPortal />} />
-                <Route path="/settings" element={<Settings />} />
-                <Route path="/profile" element={<Profile />} />
-                <Route path="*" element={<Navigate to="/dashboard" replace />} />
-              </Routes>
-            </Content>
-          </Layout>
-        </div>
-      </Router>
+              <Content
+                className={`content-area ${collapsed ? 'sidebar-collapsed' : ''}`}
+                style={{
+                  marginTop: 96, // 16px + 64px + 16px
+                  marginLeft: collapsed ? 96 : 272, // 16px + width + 16px
+                  transition: 'all 0.2s',
+                  paddingRight: 16 // Add right padding to balance
+                }}
+              >
+                <Routes>
+                  <Route path="/" element={<Navigate to="/dashboard" replace />} />
+                  <Route path="/login" element={<Navigate to="/dashboard" replace />} />
+                  <Route path="/dashboard" element={<Dashboard />} />
+                  <Route path="/tenants" element={<TenantManagement />} />
+                  <Route path="/users" element={<UserManagement />} />
+                  <Route path="/contracts" element={<ContractManagement />} />
+                  <Route path="/information-systems" element={<InformationSystemManagement />} />
+                  <Route path="/products" element={<ProductManagement />} />
+                  <Route path="/services" element={<ServiceManagement />} />
+                  <Route path="/assets" element={<AssetManagement />} />
+                  <Route path="/cloud-resources/*" element={<CloudResources />} />
+                  <Route path="/billing" element={<BillingManagement />} />
+                  <Route path="/orders" element={<OrderManagement />} />
+                  <Route path="/tenant-portal" element={<TenantPortal />} />
+                  <Route path="/settings" element={<Settings />} />
+                  <Route path="/profile" element={<Profile />} />
+                  <Route path="*" element={<Navigate to="/dashboard" replace />} />
+                </Routes>
+              </Content>
+            </Layout>
+          </div>
+        </Router>
+      </ResourceCacheProvider>
     </ConfigProvider>
   );
 }

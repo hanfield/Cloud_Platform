@@ -28,8 +28,9 @@ export const resizeVirtualMachine = async (id, data) => {
   return request.post(`/tenants/admin/vm/${id}/resize/`, data);
 };
 
-export const getImages = async () => {
-  return request.get('/openstack/images/');
+export const getImages = async (includeSnapshots = false) => {
+  const params = includeSnapshots ? { include_snapshots: 'true' } : {};
+  return request.get('/openstack/images/', { params });
 };
 
 export const createImage = async (data) => {
@@ -52,6 +53,30 @@ export const getFlavors = async () => {
   return request.get('/openstack/flavors/');
 };
 
+export const getVolumes = async (params = {}) => {
+  return request.get('/openstack/volumes/', { params });
+};
+
+export const getVolumeSnapshots = async (params = {}) => {
+  return request.get('/openstack/volume-snapshots/', { params });
+};
+
+// Resize相关API - OpenStack原生接口
+export const resizeServer = async (id, flavorId, autoConfirm = false) => {
+  return request.post(`/openstack/servers/${id}/resize/`, {
+    flavor_id: flavorId,
+    auto_confirm: autoConfirm
+  });
+};
+
+export const confirmResize = async (id) => {
+  return request.post(`/openstack/servers/${id}/confirm_resize/`);
+};
+
+export const revertResize = async (id) => {
+  return request.post(`/openstack/servers/${id}/revert_resize/`);
+};
+
 export const getNetworks = async (params = {}) => {
   return request.get('/openstack/networks/', { params });
 };
@@ -68,11 +93,17 @@ export default {
   deleteServer,
   deleteVirtualMachine,
   resizeVirtualMachine,
+  resizeServer,
+  confirmResize,
+  revertResize,
   getImages,
   createImage,
   updateImage,
   deleteImage,
   getFlavors,
+  getVolumes,
+  getVolumeSnapshots,
   getNetworks,
   createNetwork
 };
+

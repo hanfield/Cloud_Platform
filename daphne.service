@@ -1,0 +1,18 @@
+[Unit]
+Description=Daphne ASGI Server (WebSocket Support)
+After=network.target postgresql.service redis.service
+
+[Service]
+Type=simple
+User=root
+Group=root
+WorkingDirectory=/opt/yunpingtai/backend
+Environment="PATH=/opt/yunpingtai/backend/venv/bin"
+Environment="DJANGO_SETTINGS_MODULE=cloud_platform.settings"
+ExecStart=/opt/yunpingtai/backend/venv/bin/daphne -b 0.0.0.0 -p 8000 --access-log /var/log/daphne_access.log cloud_platform.asgi:application
+
+Restart=always
+RestartSec=10
+
+[Install]
+WantedBy=multi-user.target

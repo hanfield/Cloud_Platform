@@ -77,11 +77,6 @@ const Sidebar = ({ collapsed }) => {
           label: '虚拟机管理'
         },
         {
-          key: '/cloud-resources/instances',
-          icon: <CloudServerOutlined />,
-          label: '计算实例'
-        },
-        {
           key: '/cloud-resources/images',
           icon: <DatabaseOutlined />,
           label: '镜像管理'

@@ -206,7 +206,7 @@ const InformationSystemManagement = () => {
             </div>
           </div>
         ),
-        onOk() {}
+        onOk() { }
       });
     } catch (error) {
       message.error('获取系统详情失败: ' + error.message);
@@ -245,22 +245,22 @@ const InformationSystemManagement = () => {
   // 启动信息系统
   const handleStart = async (id) => {
     try {
-      await informationSystemService.updateInformationSystemStatus(id, 'running');
-      message.success('启动成功');
+      await informationSystemService.startInformationSystem(id);
+      message.success('启动成功，相关虚拟机正在启动');
       fetchInformationSystems();
     } catch (error) {
-      throw error;
+      message.error('启动失败: ' + (error.response?.data?.message || error.message));
     }
   };
 
   // 停止信息系统
   const handleStop = async (id) => {
     try {
-      await informationSystemService.updateInformationSystemStatus(id, 'stopped');
-      message.success('停止成功');
+      await informationSystemService.stopInformationSystem(id);
+      message.success('停止成功，相关虚拟机已停止');
       fetchInformationSystems();
     } catch (error) {
-      throw error;
+      message.error('停止失败: ' + (error.response?.data?.message || error.message));
     }
   };
 
@@ -357,8 +357,7 @@ const InformationSystemManagement = () => {
             title="当月应收"
             value={stats.current_month_revenue || 0}
             valueStyle={{ color: '#1890ff' }}
-            prefix={<DollarOutlined />}
-            prefix="¥"
+            prefix={<><DollarOutlined /> ¥</>}
             precision={2}
           />
         </Card>

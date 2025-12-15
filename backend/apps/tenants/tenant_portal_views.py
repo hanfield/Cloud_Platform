@@ -10,6 +10,8 @@ from django.shortcuts import get_object_or_404
 from django.db.models import Sum, Count
 from django.db import transaction
 from django.utils import timezone
+from django.core.cache import cache
+from contextlib import contextmanager
 import logging
 import random
 
@@ -21,6 +23,94 @@ from ..services.models import Service, ServiceSubscription
 from ..openstack.services import get_openstack_service
 
 logger = logging.getLogger(__name__)
+
+
+# ==================== VM 操作并发控制 ====================
+
+class VMOperationConflictError(Exception):
+    """VM 操作冲突异常"""
+    pass
+
+
+@contextmanager
+def vm_operation_lock(vm_id, timeout=60):
+    """
+    VM 操作分布式锁
+    - 使用 Redis/Django cache 实现跨进程锁
+    - 同一 VM 同一时刻只能执行一个操作
+    - 超时自动释放防止死锁
+    
+    Args:
+        vm_id: 虚拟机 ID
+        timeout: 锁超时时间（秒），默认60秒
+    
+    Raises:
+        VMOperationConflictError: 锁被占用时抛出
+    """
+    lock_key = f'vm_operation_lock:{vm_id}'
+    
+    # 尝试获取锁
+    acquired = cache.add(lock_key, 'locked', timeout)
+    if not acquired:
+        raise VMOperationConflictError('该虚拟机正在执行其他操作，请稍后重试')
+    
+    try:
+        yield
+    finally:
+        # 释放锁
+        cache.delete(lock_key)
+
+
+def push_vm_status_update(vm, action=None, operating=False):
+    """
+    通过 WebSocket 推送 VM 状态更新
+    
+    Args:
+        vm: VirtualMachine 实例
+        action: 正在执行的操作（start/stop/reboot等）
+        operating: 是否正在操作中
+    """
+    try:
+        from channels.layers import get_channel_layer
+        from asgiref.sync import async_to_sync
+        
+        channel_layer = get_channel_layer()
+        if not channel_layer:
+            logger.warning('WebSocket channel layer 未配置')
+            return
+        
+        # 获取租户 ID 用于确定推送目标
+        tenant_id = str(vm.information_system.tenant.id)
+        
+        message = {
+            'type': 'vm_status_update',
+            'vm_id': str(vm.id),
+            'openstack_id': vm.openstack_id,
+            'name': vm.name,
+            'status': 'operating' if operating else vm.status,
+            'action': action,
+            'timestamp': timezone.now().isoformat(),
+        }
+        
+        # 推送到租户组
+        async_to_sync(channel_layer.group_send)(
+            f'tenant_{tenant_id}',
+            message
+        )
+        
+        # 同时推送到管理员组
+        async_to_sync(channel_layer.group_send)(
+            'admin_notifications',
+            message
+        )
+        
+        logger.debug(f'推送 VM 状态更新: {vm.name} -> {message["status"]}')
+        
+    except Exception as e:
+        # WebSocket 推送失败不应影响主流程
+        logger.warning(f'推送 VM 状态更新失败: {str(e)}')
+
+
 
 
 def find_suitable_flavor(cpu_cores, memory_gb, disk_gb):
@@ -179,6 +269,7 @@ def tenant_profile(request):
             'contact_phone': tenant.contact_phone,
             'contact_email': tenant.contact_email,
             'address': tenant.address,
+            'openstack_project_id': getattr(tenant, 'openstack_project_id', None),
             'stakeholders': stakeholder_data
         }
         
@@ -277,6 +368,7 @@ def tenant_orders(request):
 
                 vm_resources.append({
                     'id': str(vm.id),
+                    'openstack_id': vm.openstack_id,  # OpenStack ID for status/display
                     'name': vm.name,
                     'ip': vm.ip_address or '未分配',
                     'runtime': vm.runtime_display,  # Scheduled runtime
@@ -347,9 +439,12 @@ def control_resource(request):
         # 处理虚拟机控制
         if resource_type == 'vm':
             try:
-                # 使用事务和select_for_update防止并发操作
-                with transaction.atomic():
-                    vm = VirtualMachine.objects.select_for_update().get(id=resource_id)
+                # 首先尝试获取分布式锁（跨进程并发控制）
+                with vm_operation_lock(resource_id):
+                    # 使用事务和select_for_update防止数据库级别并发
+                    with transaction.atomic():
+                        vm = VirtualMachine.objects.select_for_update().get(id=resource_id)
+
 
                     # 验证虚拟机属于该租户
                     if vm.information_system.tenant != tenant:
@@ -400,6 +495,9 @@ def control_resource(request):
                     operation_success = False
                     operation_detail = ''
 
+                    # 推送"操作中"状态到前端
+                    push_vm_status_update(vm, action=action, operating=True)
+
                     try:
                         if action == 'start':
                             operation_success = openstack_service.start_server(vm.openstack_id)
@@ -436,6 +534,8 @@ def control_resource(request):
                         # 保存虚拟机状态
                         if operation_success:
                             vm.save()
+                            # 推送最终状态到前端
+                            push_vm_status_update(vm)
 
                         # 记录操作日志到VMOperationLog
                         VMOperationLog.objects.create(
@@ -501,6 +601,11 @@ def control_resource(request):
 
             except VirtualMachine.DoesNotExist:
                 return Response({'error': '虚拟机不存在'}, status=status.HTTP_404_NOT_FOUND)
+            except VMOperationConflictError as e:
+                # 并发操作冲突 - 返回 409 Conflict
+                logger.warning(f"VM 操作冲突: {str(e)}")
+                return Response({'error': str(e)}, status=409)
+
 
         # 其他资源类型的控制（暂时返回成功响应）
         return Response({
@@ -708,70 +813,105 @@ def create_virtual_machine(request):
 
         # 获取虚拟机配置
         vm_name = data.get('name')
-        cpu_cores = data.get('cpu_cores', 2)
-        memory_gb = data.get('memory_gb', 4)
-        disk_gb = data.get('disk_gb', 20)
-        os_type = data.get('os_type', 'Linux')
-        os_version = data.get('os_version', '')
-
-        # 查找合适的 flavor 和 image
-        logger.info(f"查找合适的 flavor: CPU={cpu_cores}, Memory={memory_gb}GB, Disk={disk_gb}GB")
-        flavor = find_suitable_flavor(cpu_cores, memory_gb, disk_gb)
-        if not flavor:
-            # 获取所有 flavor 列表以便调试
-            try:
-                openstack_service = get_openstack_service()
-                all_flavors = openstack_service.list_flavors()
-                logger.error(f"可用 flavor 列表: {all_flavors}")
-            except:
-                pass
-                
-            return Response({
-                'error': f'未找到合适的虚拟机规格 (CPU:{cpu_cores}核, 内存:{memory_gb}GB, 磁盘:{disk_gb}GB)'
-            }, status=status.HTTP_400_BAD_REQUEST)
-
-        logger.info(f"找到 flavor: {flavor.get('name')} ({flavor.get('id')})")
-
-        logger.info(f"查找合适的镜像: OS={os_type}, Version={os_version}")
-        image = find_suitable_image(os_type, os_version)
-        if not image:
-            # 获取所有镜像列表以便调试
-            try:
-                openstack_service = get_openstack_service()
-                all_images = openstack_service.list_images()
-                logger.error(f"可用镜像列表: {all_images}")
-            except:
-                pass
-
-            return Response({
-                'error': f'未找到合适的操作系统镜像 ({os_type} {os_version})'
-            }, status=status.HTTP_400_BAD_REQUEST)
+        
+        # 获取启动源类型（新方式）
+        source_type = data.get('source_type', 'image')  # 默认为 image
+        
+        # 新方式：直接使用传入的 flavor_id, network_id
+        flavor_id = data.get('flavor_id')
+        network_id = data.get('network_id')
+        
+        # 根据 source_type 获取不同的源 ID
+        image_id = data.get('image_id')
+        volume_id = data.get('volume_id')
+        snapshot_id = data.get('snapshot_id')
+        
+        logger.info(f"创建虚拟机 - 源类型: {source_type}")
+        
+        openstack_service = get_openstack_service()
+        
+        # 获取 flavor
+        if flavor_id:
+            # 直接使用传入的 flavor_id
+            flavors = openstack_service.list_flavors()
+            flavor = next((f for f in flavors if f.get('id') == flavor_id), None)
+            if not flavor:
+                return Response({'error': '指定的实例类型不存在'}, status=status.HTTP_400_BAD_REQUEST)
+        else:
+            # 向后兼容：根据配置自动匹配
+            cpu_cores = data.get('cpu_cores', 2)
+            memory_gb = data.get('memory_gb', 4)
+            disk_gb = data.get('disk_gb', 20)
+            logger.info(f"查找合适的 flavor: CPU={cpu_cores}, Memory={memory_gb}GB, Disk={disk_gb}GB")
+            flavor = find_suitable_flavor(cpu_cores, memory_gb, disk_gb)
+            if not flavor:
+                return Response({
+                    'error': f'未找到合适的虚拟机规格 (CPU:{cpu_cores}核, 内存:{memory_gb}GB, 磁盘:{disk_gb}GB)'
+                }, status=status.HTTP_400_BAD_REQUEST)
+        
+        logger.info(f"使用 flavor: {flavor.get('name')} ({flavor.get('id')})")
+        
+        # 根据 source_type 验证和获取启动源
+        image = None
+        if source_type in ['image', 'instance_snapshot']:
+            # 从镜像或实例快照创建
+            if image_id:
+                # 直接使用传入的 image_id
+                images = openstack_service.list_images()
+                image = next((img for img in images if img.get('id') == image_id), None)
+                if not image:
+                    return Response({'error': '指定的镜像不存在'}, status=status.HTTP_400_BAD_REQUEST)
+            else:
+                # 向后兼容：根据 OS 类型自动匹配
+                os_type = data.get('os_type', 'Linux')
+                os_version = data.get('os_version', '')
+                logger.info(f"查找合适的镜像: OS={os_type}, Version={os_version}")
+                image = find_suitable_image(os_type, os_version)
+                if not image:
+                    return Response({
+                        'error': f'未找到合适的操作系统镜像 ({os_type} {os_version})'
+                    }, status=status.HTTP_400_BAD_REQUEST)
+            logger.info(f"使用镜像: {image.get('name')} ({image.get('id')})")
+        elif source_type == 'volume':
+            # 从卷创建
+            if not volume_id:
+                return Response({'error': '从卷创建需要指定 volume_id'}, status=status.HTTP_400_BAD_REQUEST)
+            logger.info(f"从卷创建: volume_id={volume_id}")
+        elif source_type == 'volume_snapshot':
+            # 从卷快照创建
+            if not snapshot_id:
+                return Response({'error': '从快照创建需要指定 snapshot_id'}, status=status.HTTP_400_BAD_REQUEST)
+            logger.info(f"从卷快照创建: snapshot_id={snapshot_id}")
+        else:
+            return Response({'error': f'不支持的启动源类型: {source_type}'}, status=status.HTTP_400_BAD_REQUEST)
+        
+        # 获取网络
+        if network_id:
+            # 直接使用传入的 network_id
+            networks = openstack_service.list_networks()
+            network = next((net for net in networks if net.get('id') == network_id), None)
+            if not network:
+                return Response({'error': '指定的网络不存在'}, status=status.HTTP_400_BAD_REQUEST)
+        else:
+            # 向后兼容：使用默认网络
+            logger.info(f"获取租户 {tenant.name} 的网络配置")
+            network = get_default_network(tenant)
+            if not network:
+                return Response({
+                    'error': '未找到可用网络，请联系管理员配置网络'
+                }, status=status.HTTP_400_BAD_REQUEST)
             
-        logger.info(f"找到镜像: {image.get('name')} ({image.get('id')})")
-
-        # 获取网络配置
-        logger.info(f"获取租户 {tenant.name} 的网络配置")
-        network = get_default_network(tenant)
-        if not network:
-            # 获取所有网络列表以便调试
-            try:
-                openstack_service = get_openstack_service()
-                all_networks = openstack_service.list_networks()
-                logger.error(f"可用网络列表: {all_networks}")
-            except:
-                pass
-
-            return Response({
-                'error': '未找到可用网络，请联系管理员配置网络'
-            }, status=status.HTTP_400_BAD_REQUEST)
-            
-        logger.info(f"找到网络: {network.get('name')} ({network.get('id')})")
+        logger.info(f"使用网络: {network.get('name')} ({network.get('id')})")
 
         # 从 flavor 中获取实际分配的资源规格
-        actual_vcpus = flavor.get('vcpus', cpu_cores)
-        actual_ram_mb = flavor.get('ram', memory_gb * 1024)
+        actual_vcpus = flavor.get('vcpus', 2)
+        actual_ram_mb = flavor.get('ram', 4096)
         actual_ram_gb = actual_ram_mb / 1024  # 转换为 GB
-        actual_disk = flavor.get('disk', disk_gb)
+        actual_disk = flavor.get('disk', 20)
+        
+        # 获取 OS 类型（用于数据库记录）
+        os_type = data.get('os_type', 'Linux')
+        os_version = data.get('os_version', '')
         
         logger.info(f"实际分配资源: CPU={actual_vcpus}核, 内存={actual_ram_gb}GB, 磁盘={actual_disk}GB")
 
@@ -797,26 +937,51 @@ def create_virtual_machine(request):
         # 在 OpenStack 中创建虚拟机实例
         logger.info(f"在 OpenStack 中创建虚拟机: {vm_name}")
         logger.info(f"使用 flavor: {flavor.get('name')} ({flavor.get('id')})")
-        logger.info(f"使用 image: {image.get('name')} ({image.get('id')})")
         logger.info(f"使用 network: {network.get('name')} ({network.get('id')})")
+        logger.info(f"启动源类型: {source_type}")
 
         try:
             openstack_service = get_openstack_service()
             
-            # 构建创建参数
-            server_kwargs = {
-                'name': vm_name,
-                'image_id': image.get('id'),
-                'flavor_id': flavor.get('id'),
-                'network_ids': [network.get('id')],
-            }
-            
             # 只有当 availability_zone 有值时才传递
             az = data.get('availability_zone')
+            extra_kwargs = {}
             if az:
-                server_kwargs['availability_zone'] = az
-                
-            server = openstack_service.create_server(**server_kwargs)
+                extra_kwargs['availability_zone'] = az
+            
+            # 根据 source_type 调用不同的创建方法
+            if source_type in ['image', 'instance_snapshot']:
+                # 从镜像或实例快照创建
+                logger.info(f"使用 image: {image.get('name')} ({image.get('id')})")
+                server = openstack_service.create_server(
+                    name=vm_name,
+                    image_id=image.get('id'),
+                    flavor_id=flavor.get('id'),
+                    network_ids=[network.get('id')],
+                    **extra_kwargs
+                )
+            elif source_type == 'volume':
+                # 从卷创建
+                logger.info(f"从卷创建: volume_id={volume_id}")
+                server = openstack_service.create_server_from_volume(
+                    name=vm_name,
+                    volume_id=volume_id,
+                    flavor_id=flavor.get('id'),
+                    network_ids=[network.get('id')],
+                    **extra_kwargs
+                )
+            elif source_type == 'volume_snapshot':
+                # 从卷快照创建
+                logger.info(f"从卷快照创建: snapshot_id={snapshot_id}")
+                server = openstack_service.create_server_from_snapshot(
+                    name=vm_name,
+                    snapshot_id=snapshot_id,
+                    flavor_id=flavor.get('id'),
+                    network_ids=[network.get('id')],
+                    **extra_kwargs
+                )
+            else:
+                raise Exception(f"不支持的启动源类型: {source_type}")
 
             # 更新虚拟机的 OpenStack ID 和网络信息
             vm.openstack_id = server.get('id')

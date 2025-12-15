@@ -81,6 +81,96 @@ Yunpingtai/
     └── package.json
 ```
 
+## 🏗️ 系统架构
+
+### 整体架构
+
+```mermaid
+flowchart TB
+    subgraph 用户层["👤 用户层"]
+        Admin["管理员"]
+        Tenant["租户用户"]
+    end
+
+    subgraph 前端["🖥️ 前端 React"]
+        Dashboard["仪表盘"]
+        CloudRes["云资源管理"]
+        TenantMgmt["租户管理"]
+        VMCreate["虚拟机创建"]
+    end
+
+    subgraph 后端["⚙️ 后端 Django"]
+        API["REST API"]
+        ViewSet["ViewSet 视图层"]
+        Services["OpenStack Service"]
+        Celery["Celery 异步任务"]
+    end
+
+    subgraph 数据库["🗄️ PostgreSQL"]
+        Tenants["Tenant 租户表"]
+        InfoSys["InformationSystem 信息系统表"]
+        VM_DB["VirtualMachine 虚拟机表"]
+        Users["User 用户表"]
+    end
+
+    subgraph OpenStack["☁️ OpenStack"]
+        Nova["Nova 计算服务"]
+        Glance["Glance 镜像服务"]
+        Neutron["Neutron 网络服务"]
+        Cinder["Cinder 存储服务"]
+    end
+
+    Admin --> Dashboard
+    Tenant --> CloudRes
+    Dashboard --> API
+    CloudRes --> API
+    API --> ViewSet
+    ViewSet --> Services
+    ViewSet --> Celery
+    ViewSet -->|"CRUD"| Tenants
+    ViewSet -->|"映射记录"| VM_DB
+    Services -->|"创建/管理 VM"| Nova
+    Services -->|"镜像操作"| Glance
+    Celery -->|"同步VM状态"| Nova
+    Celery -->|"更新本地记录"| VM_DB
+```
+
+### 租户用户数据获取流程
+
+系统采用**混合模式**架构：业务权限数据存储在本地数据库，实时资源状态从 OpenStack 获取。
+
+```mermaid
+sequenceDiagram
+    participant U as 👤 租户用户
+    participant B as ⚙️ 后端 API
+    participant DB as 🗄️ PostgreSQL
+    participant OS as ☁️ OpenStack
+
+    U->>B: 访问"我的资源"
+    B->>DB: 1. 查询用户关联的租户
+    B->>DB: 2. 查询租户下的信息系统
+    B->>DB: 3. 查询系统下的VM记录(含openstack_id)
+    B->>OS: 4. 根据openstack_id获取实时状态
+    OS-->>B: 返回VM状态、资源使用
+    B->>B: 5. 合并业务信息 + 实时数据
+    B-->>U: 返回完整虚拟机列表
+```
+
+### 数据权限链路
+
+```
+User → Stakeholder → Tenant → InformationSystem → VirtualMachine → OpenStack Server
+ │         │           │             │                  │                │
+ └─user_id─┘  tenant_id┘    外键关联 ┘       openstack_id┘                │
+                                                                   真实VM实例
+```
+
+| 本地数据库 | OpenStack | 关联字段 |
+|-----------|-----------|---------|
+| `Tenant` | Project | `openstack_project_id` |
+| `VirtualMachine` | Server | `openstack_id` |
+| `Snapshot` | Glance Image | `openstack_snapshot_id` |
+
 ## 🚀 快速开始
 
 ### 前置要求
@@ -177,6 +267,40 @@ OPENSTACK_DOMAIN_NAME=Default
 ```
 
 ## 📝 更新日志
+
+### v1.7.0 (2025-12-15)
+
+#### 🏗️ 系统架构文档
+- ✅ **README新增架构图**
+  - 整体架构流程图（Mermaid）
+  - 租户用户数据获取序列图
+  - 数据权限链路说明
+  - 本地数据库与OpenStack映射表
+
+#### 🔧 镜像管理优化
+- ✅ **镜像/快照分离**
+  - 后端 `list_images()` 新增 `include_snapshots` 参数
+  - 使用多条件判断过滤实例快照（image_type、base_image_ref、block_device_mapping等）
+  - 管理员镜像管理页面只显示基础镜像
+  - VMCreateWizard 正确区分镜像和实例快照
+
+#### 🐛 问题修复
+- ✅ **租户表单验证**
+  - 租户编码验证规则允许下划线字符
+  - 编辑模式下禁用租户编码字段
+  - 提交时自动移除 code 字段（后端不允许更新）
+  - 日期格式改为 ISO 格式兼容 DateTimeField
+  - 改进错误提示显示后端详细验证信息
+
+#### ⚡ 新增功能
+- ✅ **WebSocket实时状态**
+  - 新增 `useVMStatusWebSocket` Hook
+  - VM状态变化实时推送
+- ✅ **资源缓存优化**
+  - 新增 `ResourceCacheContext` 减少重复API调用
+  - Flavors/Images/Networks 带TTL缓存
+
+---
 
 ### v1.6.0 (2025-12-03)
 

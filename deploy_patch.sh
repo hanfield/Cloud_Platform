@@ -66,11 +66,64 @@ rm -rf $TEMP_DIR/backend/.DS_Store
 echo "Copying frontend build..."
 cp -r frontend/build $TEMP_DIR/frontend/
 
+# Generate Nginx Config with WebSocket Support
+echo "Generating Nginx config..."
+cat > $TEMP_DIR/yunpingtai.conf <<EOF
+server {
+    listen 80;
+    server_name _;
+
+    # Frontend
+    location / {
+        root ${PROJECT_DIR}/frontend/build;
+        index index.html index.htm;
+        try_files \$uri \$uri/ /index.html;
+    }
+
+    # WebSocket
+    location /ws/ {
+        proxy_pass http://127.0.0.1:8000;
+        proxy_http_version 1.1;
+        proxy_set_header Upgrade \$http_upgrade;
+        proxy_set_header Connection "upgrade";
+        proxy_set_header Host \$host;
+        proxy_set_header X-Real-IP \$remote_addr;
+        proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
+        proxy_read_timeout 86400s;
+        proxy_send_timeout 86400s;
+    }
+
+    # Backend API
+    location /api/ {
+        proxy_pass http://127.0.0.1:8000;
+        proxy_set_header Host \$host;
+        proxy_set_header X-Real-IP \$remote_addr;
+        proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto \$scheme;
+        proxy_read_timeout 300s;
+        proxy_connect_timeout 75s;
+    }
+
+    # Django Admin
+    location /admin/ {
+        proxy_pass http://127.0.0.1:8000;
+        proxy_set_header Host \$host;
+        proxy_set_header X-Real-IP \$remote_addr;
+        proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
+    }
+
+    # Static files
+    location /static/ {
+        alias ${PROJECT_DIR}/backend/staticfiles/;
+    }
+}
+EOF
+
 # Create Tarball
 echo "Creating update archive..."
 CURRENT_DIR=$(pwd)
 cd $TEMP_DIR
-tar -czf update_package.tar.gz backend frontend
+tar -czf update_package.tar.gz backend frontend yunpingtai.conf
 cd $CURRENT_DIR
 
 # 3. Upload Package
@@ -100,6 +153,9 @@ ssh $REMOTE_USER@$SERVER_IP "
     rm -rf $PROJECT_DIR/frontend/build
     cp -r /tmp/yunpingtai_update/frontend/build $PROJECT_DIR/frontend/
     
+    echo 'Updating Nginx Config...'
+    sudo cp /tmp/yunpingtai_update/yunpingtai.conf /etc/nginx/conf.d/yunpingtai.conf
+    
     echo 'Cleaning up...'
     rm -rf /tmp/yunpingtai_update
     rm -f /tmp/update_package.tar.gz
@@ -115,10 +171,17 @@ ssh $REMOTE_USER@$SERVER_IP "
     cd $PROJECT_DIR/backend
     source venv/bin/activate
     python3 manage.py collectstatic --noinput
+    python3 manage.py collectstatic --noinput
     deactivate
     
-    echo 'Restarting Services...'
-    systemctl restart gunicorn celery celerybeat
+    echo 'Merging Frontend Static Files...'
+    cp -r $PROJECT_DIR/frontend/build/static/* $PROJECT_DIR/backend/staticfiles/
+    
+    echo '>>> 重启服务...'
+    sudo systemctl restart daphne
+    sudo systemctl restart nginx
+    sudo systemctl restart celery
+    sudo systemctl restart celerybeat
 "
 
 # Cleanup Local
@@ -126,5 +189,14 @@ rm -rf $TEMP_DIR
 
 echo ""
 echo "=========================================="
-echo "Patch Complete!"
+echo "补丁部署完成！"
 echo "=========================================="
+echo ""
+echo "访问地址: http://$SERVER_IP"
+echo ""
+echo "检查服务状态:"
+echo "sudo systemctl status daphne"
+echo "sudo systemctl status nginx"
+echo "sudo systemctl status celery"
+echo "sudo systemctl status celerybeat"
+echo ""

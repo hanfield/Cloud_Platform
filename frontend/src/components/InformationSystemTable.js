@@ -23,8 +23,13 @@ const InformationSystemTable = ({
   onDelete,
   onStart,
   onStop,
-  onMaintain
+  onMaintain,
+  isAdmin = null // 可选，如果不传则自动检测
 }) => {
+  // 自动检测用户类型
+  const userType = localStorage.getItem('user_type') || 'admin';
+  const showDeleteButton = isAdmin !== null ? isAdmin : userType === 'admin';
+
   // 状态标签颜色映射
   const statusColorMap = {
     running: 'green',
@@ -168,21 +173,24 @@ const InformationSystemTable = ({
             </Tooltip>
           )}
 
-          <Popconfirm
-            title="确定删除这个信息系统吗？"
-            description="删除后将无法恢复"
-            onConfirm={() => onDelete(record.id)}
-            okText="确定"
-            cancelText="取消"
-          >
-            <Tooltip title="删除">
-              <Button
-                type="link"
-                danger
-                icon={<DeleteOutlined />}
-              />
-            </Tooltip>
-          </Popconfirm>
+          {showDeleteButton && (
+            <Popconfirm
+              title="确定删除这个信息系统吗？"
+              description={<span style={{ color: '#ff4d4f' }}>⚠️ 此操作将同时删除系统下的所有虚拟机，不可恢复！</span>}
+              onConfirm={() => onDelete(record.id)}
+              okText="确定删除"
+              cancelText="取消"
+              okButtonProps={{ danger: true }}
+            >
+              <Tooltip title="删除">
+                <Button
+                  type="link"
+                  danger
+                  icon={<DeleteOutlined />}
+                />
+              </Tooltip>
+            </Popconfirm>
+          )}
         </Space>
       )
     }

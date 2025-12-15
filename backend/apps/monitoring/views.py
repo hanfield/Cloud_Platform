@@ -60,31 +60,75 @@ class MonitoringViewSet(viewsets.ViewSet):
     def activities(self, request):
         """获取最近活动"""
         limit = int(request.query_params.get('limit', 10))
+        full_details = request.query_params.get('full', 'false').lower() == 'true'
         
-        activities = ActivityLog.objects.select_related('user').all()[:limit]
+        # 支持过滤
+        queryset = ActivityLog.objects.select_related('user').all()
         
-        data = []
-        for activity in activities:
-            # 计算时间差
-            time_diff = timezone.now() - activity.created_at
-            if time_diff.total_seconds() < 60:
-                time_str = f'{int(time_diff.total_seconds())}秒前'
-            elif time_diff.total_seconds() < 3600:
-                time_str = f'{int(time_diff.total_seconds() / 60)}分钟前'
-            elif time_diff.total_seconds() < 86400:
-                time_str = f'{int(time_diff.total_seconds() / 3600)}小时前'
-            else:
-                time_str = f'{int(time_diff.total_seconds() / 86400)}天前'
+        # 动态过滤条件
+        action_type = request.query_params.get('action_type')
+        resource_type = request.query_params.get('resource_type')
+        user_id = request.query_params.get('user')
+        
+        if action_type:
+            queryset = queryset.filter(action_type=action_type)
+        if resource_type:
+            queryset = queryset.filter(resource_type=resource_type)
+        if user_id:
+            queryset = queryset.filter(user_id=user_id)
+        
+        activities = queryset[:limit]
+        
+        # 根据请求返回简化或完整数据
+        if full_details:
+            # 返回完整的审计日志数据（用于CloudResources审计页面）
+            data = []
+            for activity in activities:
+                data.append({
+                    'id': activity.id,
+                    'created_at': activity.created_at.isoformat() if activity.created_at else None,
+                    'username': activity.user.username if activity.user else '系统',
+                    'action_type': activity.action_type,
+                    'action_type_display': activity.get_action_type_display(),
+                    'resource_type': activity.resource_type,
+                    'resource_type_display': activity.get_resource_type_display(),
+                    'resource_id': activity.resource_id,
+                    'resource_name': activity.resource_name or '-',
+                    'description': activity.description,
+                    'status': activity.status,
+                    'status_display': activity.get_status_display(),
+                    'ip_address': activity.ip_address or '-',
+                    'user_agent': activity.user_agent,
+                    'request_path': activity.request_path,
+                    'request_method': activity.request_method,
+                    'changes': activity.changes,
+                    'error_message': activity.error_message
+                })
+            return Response({'results': data, 'count': len(data)})
+        else:
+            # 返回简化版本（用于Dashboard）
+            data = []
+            for activity in activities:
+                # 计算时间差
+                time_diff = timezone.now() - activity.created_at
+                if time_diff.total_seconds() < 60:
+                    time_str = f'{int(time_diff.total_seconds())}秒前'
+                elif time_diff.total_seconds() < 3600:
+                    time_str = f'{int(time_diff.total_seconds() / 60)}分钟前'
+                elif time_diff.total_seconds() < 86400:
+                    time_str = f'{int(time_diff.total_seconds() / 3600)}小时前'
+                else:
+                    time_str = f'{int(time_diff.total_seconds() / 86400)}天前'
+                
+                data.append({
+                    'id': activity.id,
+                    'time': time_str,
+                    'type': activity.action_type,
+                    'content': activity.description,
+                    'user': activity.user.username if activity.user else '系统'
+                })
             
-            data.append({
-                'id': activity.id,
-                'time': time_str,
-                'type': activity.action_type,
-                'content': activity.description,
-                'user': activity.user.username if activity.user else '系统'
-            })
-        
-        return Response(data)
+            return Response(data)
 
     @action(detail=False, methods=['get'], url_path='login-history')
     def login_history(self, request):
@@ -149,9 +193,11 @@ class MonitoringViewSet(viewsets.ViewSet):
         now = timezone.now()
         if time_range == '1h':
             start_time = now - timedelta(hours=1)
+        elif time_range == '4h':
+            start_time = now - timedelta(hours=4)
         elif time_range == '7d':
             start_time = now - timedelta(days=7)
-        else: # 24h
+        else:  # 24h
             start_time = now - timedelta(hours=24)
             
         history = VMMetricHistory.objects.filter(

@@ -50,63 +50,88 @@ def get_system_resources():
 
 
 def get_service_status():
-    """获取服务状态"""
+    """获取服务状态 - 基于真实健康检查数据计算可用性"""
+    from .models import ServiceHealthCheck
+    from django.db.models import Count, Q
+    
     services = []
     
-    # Django服务
-    services.append({
-        'name': 'Django应用服务',
-        'status': 'running',
-        'uptime': '99.9%',
-        'type': 'application'
-    })
+    # 服务配置
+    service_configs = [
+        ('django', 'Django应用服务', 'application'),
+        ('database', '数据库服务', 'database'),
+        ('cache', '缓存服务', 'cache'),
+        ('celery', '任务队列服务', 'queue'),
+    ]
     
-    # 数据库服务
-    try:
-        from django.db import connection
-        connection.ensure_connection()
-        services.append({
-            'name': '数据库服务',
-            'status': 'running',
-            'uptime': '99.8%',
-            'type': 'database'
-        })
-    except Exception:
-        services.append({
-            'name': '数据库服务',
-            'status': 'error',
-            'uptime': '0%',
-            'type': 'database'
-        })
+    # 获取最近24小时的健康检查记录
+    time_threshold = timezone.now() - timedelta(hours=24)
     
-    # Redis服务（如果配置了）
-    try:
-        from django.core.cache import cache
-        cache.set('health_check', 'ok', 1)
-        if cache.get('health_check') == 'ok':
-            services.append({
-                'name': '缓存服务',
-                'status': 'running',
-                'uptime': '99.9%',
-                'type': 'cache'
-            })
-    except Exception:
+    for service_key, service_name, service_type in service_configs:
+        # 查询该服务的健康检查记录
+        checks = ServiceHealthCheck.objects.filter(
+            service_name=service_key,
+            checked_at__gte=time_threshold
+        )
+        
+        total_checks = checks.count()
+        healthy_checks = checks.filter(is_healthy=True).count()
+        
+        # 获取最新状态
+        latest_check = checks.first()  # 已按 checked_at 降序排列
+        
+        if total_checks > 0:
+            # 计算真实可用性百分比
+            availability = (healthy_checks / total_checks) * 100
+            uptime = f"{availability:.1f}%"
+            
+            # 基于最新检查确定当前状态
+            if latest_check and latest_check.is_healthy:
+                status = 'running'
+            else:
+                status = 'error' if availability < 50 else 'warning'
+        else:
+            # 没有健康检查记录时，实时检测当前状态
+            status, uptime = _check_service_now(service_key)
+        
         services.append({
-            'name': '缓存服务',
-            'status': 'warning',
-            'uptime': '0%',
-            'type': 'cache'
+            'name': service_name,
+            'status': status,
+            'uptime': uptime,
+            'type': service_type
         })
-    
-    # Celery服务（如果配置了）
-    services.append({
-        'name': '任务队列服务',
-        'status': 'running',
-        'uptime': '99.7%',
-        'type': 'queue'
-    })
     
     return services
+
+
+def _check_service_now(service_key):
+    """实时检测单个服务的当前状态（无历史数据时使用）"""
+    try:
+        if service_key == 'django':
+            # Django 正在运行
+            return 'running', '100.0%'
+        
+        elif service_key == 'database':
+            from django.db import connection
+            connection.ensure_connection()
+            return 'running', '100.0%'
+        
+        elif service_key == 'cache':
+            from django.core.cache import cache
+            cache.set('health_check', 'ok', 1)
+            if cache.get('health_check') == 'ok':
+                return 'running', '100.0%'
+            return 'warning', '0.0%'
+        
+        elif service_key == 'celery':
+            # 假设 Celery 正在运行（实际需要更完整的检查）
+            return 'running', '100.0%'
+        
+    except Exception:
+        return 'error', '0.0%'
+    
+    return 'unknown', 'N/A'
+
 
 
 def calculate_system_health():

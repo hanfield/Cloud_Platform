@@ -48,26 +48,67 @@ class InformationSystemViewSet(viewsets.ModelViewSet):
         # 租户用户则自动关联到自己的租户
         serializer.save(created_by=self.request.user)
 
+    def perform_destroy(self, instance):
+        """删除信息系统 - 同时删除所有关联的虚拟机"""
+        from .models import VirtualMachine
+        
+        deleted_count = 0
+        
+        try:
+            openstack_service = get_openstack_service()
+            
+            # 删除所有关联的虚拟机
+            vms = VirtualMachine.objects.filter(information_system=instance)
+            for vm in vms:
+                if vm.openstack_id:
+                    try:
+                        openstack_service.delete_server(vm.openstack_id)
+                        deleted_count += 1
+                    except Exception as e:
+                        # 记录日志但继续删除
+                        pass
+                vm.delete()
+            
+            # 记录操作日志
+            SystemOperationLog.objects.create(
+                information_system=instance,
+                operation_type=SystemOperationLog.OperationType.DELETE,
+                operation_detail=f"删除信息系统: {instance.name}，共删除 {deleted_count} 个虚拟机",
+                operator=self.request.user
+            )
+            
+        except Exception as e:
+            # 即使 OpenStack 操作失败，也继续删除本地记录
+            pass
+        
+        # 删除信息系统本身
+        instance.delete()
+
     @action(detail=True, methods=['post'])
     def start(self, request, pk=None):
-        """启动信息系统"""
+        """启动信息系统及其所有虚拟机"""
+        from .models import VirtualMachine
+        
         information_system = self.get_object()
 
         try:
-            # 调用OpenStack服务启动相关资源
             openstack_service = get_openstack_service()
+            started_count = 0
+            failed_count = 0
 
-            # 启动所有关联的服务器资源
-            for resource in information_system.resources.filter(
-                openstack_resource_type='server',
-                status='inactive'
-            ):
-                if resource.openstack_resource_id:
-                    success = openstack_service.start_server(resource.openstack_resource_id)
-                    if success:
-                        resource.status = SystemResource.ResourceStatus.ACTIVE
-                        resource.start_time = timezone.now()
-                        resource.save()
+            # 启动所有关联的虚拟机
+            vms = VirtualMachine.objects.filter(information_system=information_system)
+            for vm in vms:
+                if vm.openstack_id and vm.status != VirtualMachine.VMStatus.RUNNING:
+                    try:
+                        success = openstack_service.start_server(vm.openstack_id)
+                        if success:
+                            vm.status = VirtualMachine.VMStatus.RUNNING
+                            vm.last_start_time = timezone.now()
+                            vm.save()
+                            started_count += 1
+                    except Exception as e:
+                        failed_count += 1
 
             # 更新信息系统状态
             information_system.status = InformationSystem.Status.RUNNING
@@ -78,13 +119,13 @@ class InformationSystemViewSet(viewsets.ModelViewSet):
             SystemOperationLog.objects.create(
                 information_system=information_system,
                 operation_type=SystemOperationLog.OperationType.START,
-                operation_detail=f"信息系统启动成功",
+                operation_detail=f"信息系统启动成功，共启动 {started_count} 个虚拟机" + (f"，{failed_count} 个失败" if failed_count else ""),
                 operator=request.user
             )
 
             return Response({
                 'status': 'success',
-                'message': '信息系统启动成功'
+                'message': f'信息系统启动成功，共启动 {started_count} 个虚拟机'
             })
 
         except Exception as e:
@@ -119,11 +160,12 @@ class InformationSystemViewSet(viewsets.ModelViewSet):
 
     @action(detail=True, methods=['post'])
     def stop(self, request, pk=None):
-        """停止信息系统 - 仅允许租户用户停止"""
+        """停止信息系统及其所有虚拟机"""
+        from .models import VirtualMachine
+        
         information_system = self.get_object()
 
-        # 权限检查：只有所属租户的用户可以停止
-        # 检查用户是否属于该信息系统的租户
+        # 权限检查：只有所属租户的用户或管理员可以停止
         try:
             from ..tenants.user_models import UserProfile
             profile = UserProfile.objects.filter(
@@ -144,20 +186,23 @@ class InformationSystemViewSet(viewsets.ModelViewSet):
             }, status=status.HTTP_403_FORBIDDEN)
 
         try:
-            # 调用OpenStack服务停止相关资源
             openstack_service = get_openstack_service()
+            stopped_count = 0
+            failed_count = 0
 
-            # 停止所有关联的服务器资源
-            for resource in information_system.resources.filter(
-                openstack_resource_type='server',
-                status='active'
-            ):
-                if resource.openstack_resource_id:
-                    success = openstack_service.stop_server(resource.openstack_resource_id)
-                    if success:
-                        resource.status = SystemResource.ResourceStatus.INACTIVE
-                        resource.running_time = timezone.now() - resource.start_time
-                        resource.save()
+            # 停止所有关联的虚拟机
+            vms = VirtualMachine.objects.filter(information_system=information_system)
+            for vm in vms:
+                if vm.openstack_id and vm.status == VirtualMachine.VMStatus.RUNNING:
+                    try:
+                        success = openstack_service.stop_server(vm.openstack_id)
+                        if success:
+                            vm.status = VirtualMachine.VMStatus.STOPPED
+                            vm.last_stop_time = timezone.now()
+                            vm.save()
+                            stopped_count += 1
+                    except Exception as e:
+                        failed_count += 1
 
             # 更新信息系统状态
             information_system.status = InformationSystem.Status.STOPPED
@@ -168,13 +213,13 @@ class InformationSystemViewSet(viewsets.ModelViewSet):
             SystemOperationLog.objects.create(
                 information_system=information_system,
                 operation_type=SystemOperationLog.OperationType.STOP,
-                operation_detail=f"信息系统停止成功",
+                operation_detail=f"信息系统停止成功，共停止 {stopped_count} 个虚拟机" + (f"，{failed_count} 个失败" if failed_count else ""),
                 operator=request.user
             )
 
             return Response({
                 'status': 'success',
-                'message': '信息系统停止成功'
+                'message': f'信息系统停止成功，共停止 {stopped_count} 个虚拟机'
             })
 
         except Exception as e:
@@ -390,107 +435,7 @@ class InformationSystemViewSet(viewsets.ModelViewSet):
             'total_storage': total_storage
         })
 
-    @action(detail=False, methods=['get'])
-    def virtual_machines_overview(self, request):
-        """获取所有虚拟机概览统计"""
-        from django.db.models import Count, Q
 
-        # 获取所有虚拟机
-        all_vms = VirtualMachine.objects.select_related(
-            'information_system',
-            'information_system__tenant'
-        ).all()
-
-        # 统计各种状态的虚拟机
-        status_stats = {
-            'running': all_vms.filter(status='running').count(),
-            'stopped': all_vms.filter(status='stopped').count(),
-            'paused': all_vms.filter(status='paused').count(),
-            'error': all_vms.filter(status='error').count(),
-        }
-
-        # 按数据中心类型统计
-        datacenter_stats = {}
-        for dc_type, dc_name in VirtualMachine.DataCenterType.choices:
-            datacenter_stats[str(dc_name)] = all_vms.filter(data_center_type=dc_type).count()
-
-        # 资源总量统计
-        total_cpu = sum(vm.cpu_cores for vm in all_vms)
-        total_memory = sum(vm.memory_gb for vm in all_vms)
-        total_storage = sum(vm.disk_gb for vm in all_vms)
-
-        # 按租户统计
-        tenant_stats = []
-        from ..tenants.models import Tenant
-        for tenant in Tenant.objects.all():
-            tenant_vms = all_vms.filter(information_system__tenant=tenant)
-            if tenant_vms.exists():
-                tenant_stats.append({
-                    'tenant_id': str(tenant.id),
-                    'tenant_name': tenant.name,
-                    'total_vms': tenant_vms.count(),
-                    'running_vms': tenant_vms.filter(status='running').count(),
-                    'total_cpu': sum(vm.cpu_cores for vm in tenant_vms),
-                    'total_memory': sum(vm.memory_gb for vm in tenant_vms),
-                    'total_storage': sum(vm.disk_gb for vm in tenant_vms)
-                })
-
-        # 虚拟机列表（最近创建的50台）
-        recent_vms = all_vms.order_by('-created_at')[:50]
-        vms_list = []
-        for vm in recent_vms:
-            # Calculate uptime display
-            uptime_display = "未运行"
-            if vm.uptime:
-                total_seconds = int(vm.uptime.total_seconds())
-                days = total_seconds // 86400
-                hours = (total_seconds % 86400) // 3600
-                minutes = (total_seconds % 3600) // 60
-                if days > 0:
-                    uptime_display = f"{days}天{hours}小时{minutes}分钟"
-                elif hours > 0:
-                    uptime_display = f"{hours}小时{minutes}分钟"
-                else:
-                    uptime_display = f"{minutes}分钟"
-
-            vms_list.append({
-                'id': str(vm.id),
-                'name': vm.name,
-                'tenant_name': vm.information_system.tenant.name,
-                'system_name': vm.information_system.name,
-                'ip_address': vm.ip_address or '未分配',
-                'mac_address': vm.mac_address or '未分配',
-                'cpu_cores': vm.cpu_cores,
-                'memory_gb': vm.memory_gb,
-                'disk_gb': vm.disk_gb,
-                'status': vm.status,
-                'status_display': vm.get_status_display(),
-                'uptime': uptime_display,
-                'data_center_type': vm.data_center_type,
-                'data_center_type_display': vm.get_data_center_type_display(),
-                'availability_zone': vm.availability_zone or '-',
-                'region': vm.region or '-',
-                'os_type': vm.os_type or '未知',
-                'os_version': vm.os_version or '-',
-                'openstack_id': vm.openstack_id or '-',
-                'last_start_time': vm.last_start_time.strftime('%Y-%m-%d %H:%M:%S') if vm.last_start_time else None,
-                'last_stop_time': vm.last_stop_time.strftime('%Y-%m-%d %H:%M:%S') if vm.last_stop_time else None,
-                'created_at': vm.created_at.strftime('%Y-%m-%d %H:%M:%S'),
-                'created_by': vm.created_by.username if vm.created_by else '系统'
-            })
-
-        return Response({
-            'total_vms': all_vms.count(),
-            'status_stats': status_stats,
-            'datacenter_stats': datacenter_stats,
-            'resource_totals': {
-                'cpu_cores': total_cpu,
-                'memory_gb': total_memory,
-                'storage_gb': total_storage
-            },
-            'tenant_stats': tenant_stats,
-            'virtual_machines': vms_list
-        })
 
 
 class SystemResourceViewSet(viewsets.ModelViewSet):

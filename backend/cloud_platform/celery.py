@@ -44,10 +44,10 @@ app.conf.beat_schedule = {
         'schedule': 5.0,  # 每5秒执行
         'options': {'queue': 'monitoring'}
     },
-    # 从OpenStack同步虚拟机完整数据 - 每5分钟执行一次
+    # 从OpenStack同步虚拟机完整数据 - 每分钟执行一次
     'sync-openstack-vms-full': {
         'task': 'sync_openstack_vms',
-        'schedule': crontab(minute='*/5'),  # 每5分钟执行
+        'schedule': 60.0,  # 每60秒执行
         'options': {'queue': 'monitoring'}
     },
     # 清理旧日志 - 每周日凌晨3点执行
@@ -59,7 +59,7 @@ app.conf.beat_schedule = {
 
     'collect-vm-metrics-every-5-min': {
         'task': 'collect_vm_metrics',
-        'schedule': 300.0,  # 5分钟
+        'schedule': 60.0,  # 1分钟
     },
     
     'cleanup-old-metrics-daily': {
@@ -70,6 +70,13 @@ app.conf.beat_schedule = {
     # 告警检查任务 - 每分钟执行一次
     'check-vm-alerts-every-minute': {
         'task': 'check_vm_alerts',
+        'schedule': 60.0,  # 每60秒执行一次
+        'options': {'queue': 'monitoring'}
+    },
+
+    # 服务健康检查 - 每分钟执行一次（用于计算真实可用性）
+    'check-service-health-every-minute': {
+        'task': 'check_service_health',
         'schedule': 60.0,  # 每60秒执行一次
         'options': {'queue': 'monitoring'}
     },

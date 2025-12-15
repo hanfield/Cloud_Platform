@@ -2,15 +2,37 @@
  * 租户表单组件
  */
 
-import React, { useEffect } from 'react';
+import React, { useEffect, useState } from 'react';
 import { Form, Input, Select, DatePicker, InputNumber, Row, Col, Button, message } from 'antd';
 import moment from 'moment';
+import tenantService from '../services/tenantService';
 
 const { TextArea } = Input;
 const { Option } = Select;
 
 const TenantForm = ({ initialValues, onSubmit, onCancel, loading }) => {
   const [form] = Form.useForm();
+  const [stakeholders, setStakeholders] = useState([]);
+  const [loadingStakeholders, setLoadingStakeholders] = useState(false);
+
+  // 获取干系人列表（编辑模式时）
+  useEffect(() => {
+    if (initialValues?.id) {
+      fetchStakeholders(initialValues.id);
+    }
+  }, [initialValues]);
+
+  const fetchStakeholders = async (tenantId) => {
+    setLoadingStakeholders(true);
+    try {
+      const response = await tenantService.getTenantStakeholders(tenantId);
+      setStakeholders(response.results || response || []);
+    } catch (error) {
+      console.error('获取干系人失败:', error);
+    } finally {
+      setLoadingStakeholders(false);
+    }
+  };
 
   useEffect(() => {
     if (initialValues) {
@@ -24,19 +46,32 @@ const TenantForm = ({ initialValues, onSubmit, onCancel, loading }) => {
     }
   }, [initialValues, form]);
 
+
   const handleSubmit = async () => {
     try {
       const values = await form.validateFields();
-      // 转换日期为字符串
+      // 转换日期为 ISO 格式字符串（后端是 DateTimeField）
       const submitValues = {
         ...values,
-        start_time: values.start_time ? values.start_time.format('YYYY-MM-DD') : null,
-        end_time: values.end_time ? values.end_time.format('YYYY-MM-DD') : null
+        start_time: values.start_time ? values.start_time.format('YYYY-MM-DDTHH:mm:ss') : null,
+        end_time: values.end_time ? values.end_time.format('YYYY-MM-DDTHH:mm:ss') : null
       };
+
+      // 编辑模式下移除 code 字段，因为后端不允许更新它
+      if (initialValues?.id) {
+        delete submitValues.code;
+      }
+
+      console.log('Submitting values:', submitValues);
+
       await onSubmit(submitValues);
       message.success(initialValues ? '更新成功' : '创建成功');
     } catch (error) {
       console.error('Form validation failed:', error);
+      // 显示后端返回的详细错误信息
+      if (error.response?.data) {
+        console.error('Backend error:', error.response.data);
+      }
     }
   };
 
@@ -67,10 +102,13 @@ const TenantForm = ({ initialValues, onSubmit, onCancel, loading }) => {
               name="code"
               rules={[
                 { required: true, message: '请输入租户编码' },
-                { pattern: /^[A-Z0-9]+$/, message: '只能包含大写字母和数字' }
+                { pattern: /^[A-Z0-9_]+$/, message: '只能包含大写字母、数字和下划线' }
               ]}
             >
-              <Input placeholder="请输入租户编码" />
+              <Input
+                placeholder="请输入租户编码"
+                disabled={!!initialValues?.id}
+              />
             </Form.Item>
           </Col>
         </Row>
@@ -140,9 +178,32 @@ const TenantForm = ({ initialValues, onSubmit, onCancel, loading }) => {
             <Form.Item
               label="联系人"
               name="contact_person"
-              rules={[{ required: true, message: '请输入联系人' }]}
+              rules={[{ required: true, message: '请选择联系人' }]}
+              extra={initialValues?.id && stakeholders.length === 0 && !loadingStakeholders ? '暂无干系人，请先添加干系人' : null}
             >
-              <Input placeholder="请输入联系人" />
+              <Select
+                placeholder="请选择联系人"
+                showSearch
+                allowClear
+                loading={loadingStakeholders}
+                optionFilterProp="children"
+                onChange={(value) => {
+                  // 自动填充选中干系人的电话和邮箱
+                  const selected = stakeholders.find(s => s.name === value);
+                  if (selected) {
+                    form.setFieldsValue({
+                      contact_phone: selected.phone || form.getFieldValue('contact_phone'),
+                      contact_email: selected.email || form.getFieldValue('contact_email'),
+                    });
+                  }
+                }}
+              >
+                {stakeholders.map(s => (
+                  <Option key={s.id} value={s.name}>
+                    {s.name} {s.position ? `(${s.position})` : ''} {s.stakeholder_type_display ? `- ${s.stakeholder_type_display}` : ''}
+                  </Option>
+                ))}
+              </Select>
             </Form.Item>
           </Col>
           <Col span={8}>

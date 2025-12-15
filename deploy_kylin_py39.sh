@@ -167,7 +167,9 @@ pip install python-dateutil==2.9.0.post0
 pip install pytz==2023.3
 pip install requests==2.31.0
 pip install psutil==5.9.6
-pip install gunicorn
+pip install daphne==4.0.0
+pip install channels==4.0.0
+pip install channels-redis==4.1.0
 pip install "importlib-metadata<5.0"
 pip install typing-extensions
 
@@ -228,6 +230,18 @@ server {
         try_files \$uri \$uri/ /index.html;
     }
 
+    # WebSocket support
+    location /ws/ {
+        proxy_pass http://127.0.0.1:8000;
+        proxy_http_version 1.1;
+        proxy_set_header Upgrade \$http_upgrade;
+        proxy_set_header Connection "upgrade";
+        proxy_set_header Host \$host;
+        proxy_set_header X-Real-IP \$remote_addr;
+        proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
+        proxy_read_timeout 86400;
+    }
+
     location /api/ {
         proxy_pass http://127.0.0.1:8000;
         proxy_set_header Host \$host;
@@ -253,23 +267,26 @@ rm -f /etc/nginx/conf.d/default.conf
 echo ""
 echo ">>> 11. 配置 Systemd..."
 
-cat > /etc/systemd/system/gunicorn.service <<EOF
+cat > /etc/systemd/system/daphne.service <<EOF
 [Unit]
-Description=Gunicorn
-After=network.target postgresql.service
+Description=Daphne ASGI Server (WebSocket Support)
+After=network.target postgresql.service redis.service
 
 [Service]
+Type=simple
 User=root
 Group=root
 WorkingDirectory=${PROJECT_DIR}/backend
 Environment="PATH=${PROJECT_DIR}/backend/venv/bin"
-ExecStart=${PROJECT_DIR}/backend/venv/bin/gunicorn \\
-    --workers 3 \\
-    --bind 127.0.0.1:8000 \\
-    --timeout 300 \\
-    --access-logfile /var/log/gunicorn_access.log \\
-    --error-logfile /var/log/gunicorn_error.log \\
-    cloud_platform.wsgi:application
+Environment="DJANGO_SETTINGS_MODULE=cloud_platform.settings"
+ExecStart=${PROJECT_DIR}/backend/venv/bin/daphne \\
+    -b 0.0.0.0 \\
+    -p 8000 \\
+    --access-log /var/log/daphne_access.log \\
+    cloud_platform.asgi:application
+
+Restart=always
+RestartSec=10
 
 [Install]
 WantedBy=multi-user.target
@@ -321,8 +338,8 @@ mkdir -p /var/run/celery /var/log/celery
 echo ""
 echo ">>> 12. 启动服务..."
 systemctl daemon-reload
-systemctl enable gunicorn celery celerybeat nginx
-systemctl restart gunicorn celery celerybeat nginx
+systemctl enable daphne celery celerybeat nginx
+systemctl restart daphne celery celerybeat nginx
 
 echo ""
 echo "=========================================="

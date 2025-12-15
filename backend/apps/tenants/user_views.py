@@ -37,8 +37,8 @@ def sync_user_to_stakeholder(profile):
     """
     同步用户到干系人列表
     - 已激活(active)状态：添加到干系人列表
+    - 已暂停(suspended)状态：保留在干系人列表（已经是干系人则不处理）
     - 待审核(pending)和已拒绝(rejected)状态：从干系人列表移除
-    - 已暂停(suspended)状态：保留在干系人列表
     """
     if not profile.tenant:
         return
@@ -55,18 +55,77 @@ def sync_user_to_stakeholder(profile):
         if not existing_stakeholder:
             stakeholder = Stakeholder(tenant=profile.tenant)
             stakeholder.name = profile.user.username
-            stakeholder.phone = profile.phone or ''
-            stakeholder.email = profile.user.email
             stakeholder.position = profile.position or ''
             stakeholder.department = profile.department or ''
             stakeholder.stakeholder_type = Stakeholder.StakeholderType.CUSTOMER
             stakeholder.is_primary = False
             stakeholder.notes = f'系统用户: {profile.user.username}'
+            
+            # 加密字段可能因配置问题失败，使用未加密存储
+            try:
+                stakeholder.phone = profile.phone or ''
+            except Exception as e:
+                logger.warning(f"设置干系人phone字段失败: {e}")
+                stakeholder.phone_encrypted = profile.phone or ''
+            
+            try:
+                stakeholder.email = profile.user.email or ''
+            except Exception as e:
+                logger.warning(f"设置干系人email字段失败: {e}")
+                stakeholder.email_encrypted = profile.user.email or ''
+            
             stakeholder.save()
             logger.info(f"用户 {profile.user.username} 已添加到租户 {profile.tenant.name} 的干系人列表")
+        else:
+            # 更新现有干系人的联系信息（如果为空）
+            updated = False
+            if not existing_stakeholder.email_encrypted and profile.user.email:
+                try:
+                    existing_stakeholder.email = profile.user.email
+                except Exception as e:
+                    logger.warning(f"更新干系人email字段失败: {e}")
+                    existing_stakeholder.email_encrypted = profile.user.email
+                updated = True
+            
+            if not existing_stakeholder.phone_encrypted and profile.phone:
+                try:
+                    existing_stakeholder.phone = profile.phone
+                except Exception as e:
+                    logger.warning(f"更新干系人phone字段失败: {e}")
+                    existing_stakeholder.phone_encrypted = profile.phone
+                updated = True
+            
+            if updated:
+                existing_stakeholder.save()
+                logger.info(f"用户 {profile.user.username} 的干系人联系信息已更新")
 
-    elif profile.status in [UserProfile.UserStatus.PENDING, UserProfile.UserStatus.REJECTED, UserProfile.UserStatus.SUSPENDED]:
-        # 待审核、已拒绝或已暂停状态：移除干系人
+    elif profile.status == UserProfile.UserStatus.SUSPENDED:
+        # 已暂停状态：保留在干系人列表，如果不存在则添加
+        if not existing_stakeholder:
+            stakeholder = Stakeholder(tenant=profile.tenant)
+            stakeholder.name = profile.user.username
+            stakeholder.position = profile.position or ''
+            stakeholder.department = profile.department or ''
+            stakeholder.stakeholder_type = Stakeholder.StakeholderType.CUSTOMER
+            stakeholder.is_primary = False
+            stakeholder.notes = f'系统用户: {profile.user.username}'
+            
+            # 加密字段可能因配置问题失败，使用未加密存储
+            try:
+                stakeholder.phone = profile.phone or ''
+            except Exception:
+                stakeholder.phone_encrypted = profile.phone or ''
+            
+            try:
+                stakeholder.email = profile.user.email or ''
+            except Exception:
+                stakeholder.email_encrypted = profile.user.email or ''
+            
+            stakeholder.save()
+            logger.info(f"用户 {profile.user.username} (暂停状态) 已添加到租户 {profile.tenant.name} 的干系人列表")
+
+    elif profile.status in [UserProfile.UserStatus.PENDING, UserProfile.UserStatus.REJECTED]:
+        # 待审核和已拒绝状态：移除干系人
         if existing_stakeholder:
             existing_stakeholder.delete()
             logger.info(f"用户 {profile.user.username} 已从租户 {profile.tenant.name} 的干系人列表移除")

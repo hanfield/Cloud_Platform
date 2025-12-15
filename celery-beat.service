@@ -1,0 +1,14 @@
+[Unit]
+Description=Celery Beat Scheduler for Cloud Platform
+After=network.target redis.service
+
+[Service]
+Type=simple
+User=root
+WorkingDirectory=/root/Yunpingtai/backend
+ExecStart=/root/Yunpingtai/venv/bin/celery -A cloud_platform beat --loglevel=info
+Restart=always
+RestartSec=10
+
+[Install]
+WantedBy=multi-user.target

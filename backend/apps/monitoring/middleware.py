@@ -27,6 +27,7 @@ class AuditLogMiddleware(MiddlewareMixin):
         '/admin/',  # Django admin
         '/static/',
         '/media/',
+        '/api/auth/', # 排除认证相关请求（登录、刷新token等）
     ]
     
     # 敏感字段（记录时脱敏）
@@ -190,17 +191,87 @@ class AuditLogMiddleware(MiddlewareMixin):
                     resource_id = parts[i + 1]
                     break
         
-        # 租户相关
-        elif '/tenants/' in path:
+        # 信息系统相关 (需要在租户检查之前，因为路径可能包含 /tenants/)
+        elif '/information-systems/' in path or '/create-system/' in path or '/systems/' in path:
+            resource_type = 'system'
+        
+        # 租户相关 (排除信息系统相关路径)
+        elif '/tenants/' in path and '/create-system/' not in path and '/systems/' not in path:
             resource_type = 'tenant'
         
         # 用户相关
         elif '/users/' in path:
             resource_type = 'user'
         
-        # 信息系统相关
-        elif '/information-systems/' in path:
-            resource_type = 'system'
+        # OpenStack相关
+        elif '/openstack/' in path:
+            if '/servers/' in path:
+                resource_type = 'vm'
+                if '/action/' in path: # batch action
+                    # action_type is usually in body or determined by endpoint
+                    pass
+                elif '/start/' in path:
+                    action_type = 'start'
+                elif '/stop/' in path:
+                    action_type = 'stop'
+                elif '/reboot/' in path:
+                    action_type = 'restart'
+                
+                parts = path.split('/')
+                for i, part in enumerate(parts):
+                    if part == 'servers' and i + 1 < len(parts):
+                        potential_id = parts[i + 1]
+                        if potential_id != 'batch_action':
+                           resource_id = potential_id
+                        break
+
+            elif '/security-groups/' in path:
+                resource_type = 'security_group'
+                parts = path.split('/')
+                for i, part in enumerate(parts):
+                    if part == 'security-groups' and i + 1 < len(parts):
+                        resource_id = parts[i + 1]
+                        break
+            
+            elif '/networks/' in path:
+                 resource_type = 'network'
+                 parts = path.split('/')
+                 for i, part in enumerate(parts):
+                    if part == 'networks' and i + 1 < len(parts):
+                        resource_id = parts[i + 1]
+                        break
+
+            elif '/images/' in path:
+                 resource_type = 'image'
+                 parts = path.split('/')
+                 for i, part in enumerate(parts):
+                    if part == 'images' and i + 1 < len(parts):
+                        resource_id = parts[i + 1]
+                        break
+            
+            elif '/flavors/' in path:
+                 resource_type = 'flavor'
+            
+            elif '/floating-ips/' in path:
+                 resource_type = 'floating_ip'
+
+        # 合同相关
+        elif '/contracts/' in path:
+            resource_type = 'contract'
+            parts = path.split('/')
+            for i, part in enumerate(parts):
+                if part == 'contracts' and i + 1 < len(parts):
+                    resource_id = parts[i + 1]
+                    break
+
+        # 订单相关
+        elif '/orders/' in path:
+            resource_type = 'order'
+            parts = path.split('/')
+            for i, part in enumerate(parts):
+                if part == 'orders' and i + 1 < len(parts):
+                    resource_id = parts[i + 1]
+                    break
         
         # 尝试从请求/响应中获取资源名称
         try:
@@ -269,7 +340,14 @@ class AuditLogMiddleware(MiddlewareMixin):
             'tenant': '租户',
             'user': '用户',
             'system': '信息系统',
+
             'network': '网络',
+            'security_group': '安全组',
+            'floating_ip': '浮动IP',
+            'flavor': '规格',
+            'contract': '合同',
+            'order': '订单',
+            'other': '其他资源',
         }
         
         action_text = action_map.get(action_type, action_type)

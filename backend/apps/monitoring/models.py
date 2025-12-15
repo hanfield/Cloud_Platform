@@ -51,6 +51,11 @@ class ActivityLog(models.Model):
         ('user', '用户'),
         ('system', '信息系统'),
         ('alert_rule', '告警规则'),
+        ('security_group', '安全组'),
+        ('floating_ip', '浮动IP'),
+        ('flavor', '规格'),
+        ('contract', '合同'),
+        ('order', '订单'),
         ('other', '其他'),
     )
     
@@ -230,3 +235,33 @@ class AlertHistory(models.Model):
 
     def __str__(self):
         return f"{self.rule.name} - {self.virtual_machine.name} ({self.status})"
+
+
+class ServiceHealthCheck(models.Model):
+    """服务健康检查记录 - 用于计算真实可用性"""
+    
+    SERVICE_TYPES = (
+        ('django', 'Django应用服务'),
+        ('database', '数据库服务'),
+        ('cache', '缓存服务'),
+        ('celery', '任务队列服务'),
+    )
+    
+    service_name = models.CharField('服务名称', max_length=50, choices=SERVICE_TYPES)
+    is_healthy = models.BooleanField('是否健康', default=True)
+    response_time_ms = models.IntegerField('响应时间(毫秒)', null=True, blank=True)
+    error_message = models.TextField('错误信息', blank=True, default='')
+    checked_at = models.DateTimeField('检查时间', auto_now_add=True)
+    
+    class Meta:
+        db_table = 'service_health_checks'
+        verbose_name = '服务健康检查'
+        verbose_name_plural = verbose_name
+        ordering = ['-checked_at']
+        indexes = [
+            models.Index(fields=['service_name', 'checked_at']),
+        ]
+    
+    def __str__(self):
+        status = '健康' if self.is_healthy else '异常'
+        return f"{self.get_service_name_display()} - {status} ({self.checked_at.strftime('%Y-%m-%d %H:%M')})"
