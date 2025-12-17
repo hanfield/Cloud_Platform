@@ -280,6 +280,66 @@ class OpenStackService:
             logger.error(f"删除服务器失败: {str(e)}")
             return False
 
+    def update_server(self, server_id: str, name: str = None, description: str = None) -> bool:
+        """更新服务器名称和描述
+        
+        Args:
+            server_id: 服务器ID
+            name: 新名称（可选）
+            description: 新描述（可选）
+        """
+        try:
+            conn = self.get_connection()
+            update_kwargs = {}
+            if name is not None:
+                update_kwargs['name'] = name
+            if description is not None:
+                update_kwargs['description'] = description
+            
+            if update_kwargs:
+                conn.compute.update_server(server_id, **update_kwargs)
+                logger.info(f"更新服务器成功: {server_id}, 更新字段: {list(update_kwargs.keys())}")
+            return True
+        except Exception as e:
+            logger.error(f"更新服务器失败: {str(e)}")
+            return False
+
+    def get_server_security_groups(self, server_id: str) -> List[Dict[str, Any]]:
+        """获取服务器关联的安全组列表"""
+        try:
+            conn = self.get_connection()
+            server = conn.compute.get_server(server_id)
+            if server and hasattr(server, 'security_groups'):
+                # security_groups 是一个列表，每个元素有 name 属性
+                return [{'name': sg.get('name', sg) if isinstance(sg, dict) else sg} 
+                        for sg in (server.security_groups or [])]
+            return []
+        except Exception as e:
+            logger.error(f"获取服务器安全组失败: {str(e)}")
+            return []
+
+    def add_security_group_to_server(self, server_id: str, security_group_name: str) -> bool:
+        """添加安全组到服务器"""
+        try:
+            conn = self.get_connection()
+            conn.compute.add_security_group_to_server(server_id, security_group_name)
+            logger.info(f"添加安全组成功: {server_id} <- {security_group_name}")
+            return True
+        except Exception as e:
+            logger.error(f"添加安全组失败: {str(e)}")
+            return False
+
+    def remove_security_group_from_server(self, server_id: str, security_group_name: str) -> bool:
+        """从服务器移除安全组"""
+        try:
+            conn = self.get_connection()
+            conn.compute.remove_security_group_from_server(server_id, security_group_name)
+            logger.info(f"移除安全组成功: {server_id} -> {security_group_name}")
+            return True
+        except Exception as e:
+            logger.error(f"移除安全组失败: {str(e)}")
+            return False
+
     def start_server(self, server_id: str, wait: bool = True, timeout: int = 60) -> bool:
         """启动服务器
         
@@ -1222,38 +1282,6 @@ class OpenStackService:
             logger.error(f"获取服务器详细信息失败: {str(e)}")
             return None
 
-    def start_server(self, server_id: str) -> bool:
-        """启动服务器"""
-        try:
-            conn = self.get_connection()
-            conn.compute.start_server(server_id)
-            logger.info(f"启动服务器成功: {server_id}")
-            return True
-        except Exception as e:
-            logger.error(f"启动服务器失败: {str(e)}")
-            return False
-
-    def stop_server(self, server_id: str) -> bool:
-        """停止服务器"""
-        try:
-            conn = self.get_connection()
-            conn.compute.stop_server(server_id)
-            logger.info(f"停止服务器成功: {server_id}")
-            return True
-        except Exception as e:
-            logger.error(f"停止服务器失败: {str(e)}")
-            return False
-
-    def reboot_server(self, server_id: str, reboot_type: str = 'SOFT') -> bool:
-        """重启服务器"""
-        try:
-            conn = self.get_connection()
-            conn.compute.reboot_server(server_id, reboot_type)
-            logger.info(f"重启服务器成功: {server_id}")
-            return True
-        except Exception as e:
-            logger.error(f"重启服务器失败: {str(e)}")
-            return False
 
     def resize_server(self, server_id: str, new_flavor_id: str, auto_confirm: bool = True) -> bool:
         """调整服务器规格
@@ -1498,13 +1526,44 @@ class OpenStackService:
 
     # ==================== 快照与恢复 ====================
 
-    def create_server_snapshot(self, server_id: str, name: str) -> Optional[str]:
-        """创建服务器快照"""
+    def create_server_snapshot(self, server_id: str, name: str, wait: bool = True, timeout: int = 300) -> Optional[str]:
+        """创建服务器快照
+        
+        Args:
+            server_id: 服务器ID
+            name: 快照名称
+            wait: 是否等待快照创建完成
+            timeout: 等待超时时间（秒），默认5分钟
+        """
+        import time
+        
         try:
             conn = self.get_connection()
-            # create_image 返回的是 image_id (string) 或者 None
-            image_id = conn.compute.create_image(server_id, name=name)
+            # create_server_image 返回的是 Image 对象
+            image = conn.compute.create_server_image(server_id, name=name)
+            image_id = image.id if image else None
             logger.info(f"创建快照任务提交成功: {name} (Server: {server_id}, ImageID: {image_id})")
+            
+            if wait and image_id:
+                # 等待快照状态变为 active
+                start_time = time.time()
+                while time.time() - start_time < timeout:
+                    try:
+                        img = conn.image.get_image(image_id)
+                        if img:
+                            status = img.status.lower() if img.status else ''
+                            if status == 'active':
+                                logger.info(f"快照创建完成: {name} (ImageID: {image_id})")
+                                return image_id
+                            elif status in ['error', 'killed', 'deleted']:
+                                logger.error(f"快照创建失败，状态: {status}")
+                                return None
+                    except Exception as check_error:
+                        logger.warning(f"检查快照状态时出错: {str(check_error)}")
+                    time.sleep(3)  # 每3秒检查一次
+                
+                logger.warning(f"等待快照创建超时: {name}")
+            
             return image_id
         except Exception as e:
             logger.error(f"创建快照失败: {str(e)}")

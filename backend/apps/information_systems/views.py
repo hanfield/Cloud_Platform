@@ -566,14 +566,19 @@ class VMSnapshotViewSet(viewsets.ModelViewSet):
                 image_id = openstack_service.create_server_snapshot(vm.openstack_id, snapshot.name)
                 if image_id:
                     snapshot.openstack_image_id = image_id
+                    snapshot.status = 'available'  # 成功后更新状态
+                    snapshot.save()
+                else:
+                    snapshot.status = 'error'
+                    snapshot.description = (snapshot.description or '') + " (Error: OpenStack returned no image ID)"
                     snapshot.save()
             else:
                 snapshot.status = 'error'
-                snapshot.description += " (Error: VM has no OpenStack ID)"
+                snapshot.description = (snapshot.description or '') + " (Error: VM has no OpenStack ID)"
                 snapshot.save()
         except Exception as e:
             snapshot.status = 'error'
-            snapshot.description += f" (Error: {str(e)})"
+            snapshot.description = (snapshot.description or '') + f" (Error: {str(e)})"
             snapshot.save()
 
     @action(detail=True, methods=['post'])

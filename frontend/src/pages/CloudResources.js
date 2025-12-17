@@ -2,6 +2,7 @@ import api from '../services/api';
 import AdminResourceCreate from '../components/AdminResourceCreate';
 import VMCreateWizard from '../components/VMCreateWizard';
 import VMDetailModal from '../components/VMDetailModal';
+import VMEditModal from '../components/VMEditModal';
 import React, { useState, useEffect, Suspense, useCallback, useRef } from 'react';
 import { Card, Row, Col, Statistic, Tabs, Table, Button, message, Tag, Space, Typography, Input, Switch, Popconfirm, Modal, Form, InputNumber, Divider, Upload, Select, Skeleton, Alert } from 'antd';
 import { ReloadOutlined, DesktopOutlined, PlayCircleOutlined, StopOutlined, DatabaseOutlined, CloudServerOutlined, SearchOutlined, EyeOutlined, DeleteOutlined, UploadOutlined, EditOutlined, BellOutlined, WarningOutlined, GlobalOutlined, EnvironmentOutlined, LockOutlined } from '@ant-design/icons';
@@ -69,6 +70,10 @@ const CloudResources = () => {
   const [resizeModalVisible, setResizeModalVisible] = useState(false);
   const [selectedVmForResize, setSelectedVmForResize] = useState(null);
   const [resizeForm] = Form.useForm();
+
+  // 编辑VM模态框状态
+  const [vmEditModalVisible, setVmEditModalVisible] = useState(false);
+  const [selectedVmForEdit, setSelectedVmForEdit] = useState(null);
 
   // 镜像管理状态
   const [imageUploadModalVisible, setImageUploadModalVisible] = useState(false);
@@ -1266,6 +1271,18 @@ const CloudResources = () => {
               详情
             </Button>
 
+            <Button
+              size="small"
+              icon={<EditOutlined />}
+              style={{ color: '#13c2c2', borderColor: '#13c2c2' }}
+              onClick={() => {
+                setSelectedVmForEdit(record);
+                setVmEditModalVisible(true);
+              }}
+            >
+              编辑
+            </Button>
+
             {isStopped && (
               <Button
                 size="small"
@@ -1283,6 +1300,7 @@ const CloudResources = () => {
               <>
                 <Button
                   size="small"
+                  danger
                   icon={<StopOutlined />}
                   onClick={() => handleVMPowerAction(record.openstack_id, 'stop', '停止')}
                   disabled={vmOperations.has(record.openstack_id)}
@@ -1292,6 +1310,7 @@ const CloudResources = () => {
                 </Button>
                 <Button
                   size="small"
+                  style={{ color: '#fa8c16', borderColor: '#fa8c16' }}
                   onClick={() => handleVMPowerAction(record.openstack_id, 'pause', '暂停')}
                   disabled={vmOperations.has(record.openstack_id)}
                   loading={vmOperations.has(record.openstack_id)}
@@ -1300,6 +1319,7 @@ const CloudResources = () => {
                 </Button>
                 <Button
                   size="small"
+                  style={{ color: '#1890ff', borderColor: '#1890ff' }}
                   icon={<ReloadOutlined />}
                   onClick={() => handleVMPowerAction(record.openstack_id, 'reboot', '重启')}
                   disabled={vmOperations.has(record.openstack_id)}
@@ -2240,6 +2260,16 @@ const CloudResources = () => {
           setSelectedVm(null);
         }}
         onRefresh={fetchAllData}
+      />
+
+      <VMEditModal
+        visible={vmEditModalVisible}
+        vm={selectedVmForEdit}
+        onClose={() => {
+          setVmEditModalVisible(false);
+          setSelectedVmForEdit(null);
+        }}
+        onSuccess={fetchAllData}
       />
 
       {/* 虚拟机配置调整模态框 */}

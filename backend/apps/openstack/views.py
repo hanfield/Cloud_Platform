@@ -449,6 +449,168 @@ class OpenStackServerViewSet(ViewSet):
                 status=status.HTTP_500_INTERNAL_SERVER_ERROR
             )
 
+    @action(detail=True, methods=['put', 'patch'])
+    def update_info(self, request, pk=None):
+        """更新服务器名称和描述"""
+        try:
+            service = get_openstack_service()
+            name = request.data.get('name')
+            description = request.data.get('description')
+            
+            if name is None and description is None:
+                return Response(
+                    {'error': '请提供要更新的字段: name 或 description'},
+                    status=status.HTTP_400_BAD_REQUEST
+                )
+            
+            success = service.update_server(pk, name=name, description=description)
+            if success:
+                # 如果本地数据库也有记录，同步更新
+                try:
+                    vm = VirtualMachine.objects.filter(openstack_id=pk).first()
+                    if vm and name:
+                        vm.name = name
+                        vm.save(update_fields=['name'])
+                except Exception as db_error:
+                    logger.warning(f"同步更新本地数据库失败: {str(db_error)}")
+                
+                return Response({'detail': '服务器信息更新成功'})
+            else:
+                return Response(
+                    {'error': '更新服务器信息失败'},
+                    status=status.HTTP_400_BAD_REQUEST
+                )
+        except Exception as e:
+            logger.error(f"更新服务器信息失败: {str(e)}")
+            return Response(
+                {'error': f'更新服务器信息失败: {str(e)}'},
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR
+            )
+
+    @action(detail=True, methods=['get'])
+    def security_groups(self, request, pk=None):
+        """获取服务器关联的安全组"""
+        try:
+            service = get_openstack_service()
+            security_groups = service.get_server_security_groups(pk)
+            return Response({'security_groups': security_groups})
+        except Exception as e:
+            logger.error(f"获取服务器安全组失败: {str(e)}")
+            return Response(
+                {'error': f'获取服务器安全组失败: {str(e)}'},
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR
+            )
+
+    @action(detail=True, methods=['post'], url_path='security-groups/add')
+    def add_security_group(self, request, pk=None):
+        """添加安全组到服务器"""
+        try:
+            service = get_openstack_service()
+            sg_name = request.data.get('security_group_name') or request.data.get('name')
+            
+            if not sg_name:
+                return Response(
+                    {'error': '缺少必要参数: security_group_name'},
+                    status=status.HTTP_400_BAD_REQUEST
+                )
+            
+            success = service.add_security_group_to_server(pk, sg_name)
+            if success:
+                return Response({'detail': f'安全组 {sg_name} 已添加到服务器'})
+            else:
+                return Response(
+                    {'error': '添加安全组失败'},
+                    status=status.HTTP_400_BAD_REQUEST
+                )
+        except Exception as e:
+            logger.error(f"添加安全组失败: {str(e)}")
+            return Response(
+                {'error': f'添加安全组失败: {str(e)}'},
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR
+            )
+
+    @action(detail=True, methods=['post'], url_path='security-groups/remove')
+    def remove_security_group(self, request, pk=None):
+        """从服务器移除安全组"""
+        try:
+            service = get_openstack_service()
+            sg_name = request.data.get('security_group_name') or request.data.get('name')
+            
+            if not sg_name:
+                return Response(
+                    {'error': '缺少必要参数: security_group_name'},
+                    status=status.HTTP_400_BAD_REQUEST
+                )
+            
+            success = service.remove_security_group_from_server(pk, sg_name)
+            if success:
+                return Response({'detail': f'安全组 {sg_name} 已从服务器移除'})
+            else:
+                return Response(
+                    {'error': '移除安全组失败'},
+                    status=status.HTTP_400_BAD_REQUEST
+                )
+        except Exception as e:
+            logger.error(f"移除安全组失败: {str(e)}")
+            return Response(
+                {'error': f'移除安全组失败: {str(e)}'},
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR
+            )
+
+    @action(detail=True, methods=['put'], url_path='security-groups')
+    def update_security_groups(self, request, pk=None):
+        """批量更新服务器安全组（替换为指定的安全组列表）"""
+        try:
+            service = get_openstack_service()
+            new_sg_names = request.data.get('security_groups', [])
+            
+            if not isinstance(new_sg_names, list):
+                return Response(
+                    {'error': 'security_groups 必须是一个列表'},
+                    status=status.HTTP_400_BAD_REQUEST
+                )
+            
+            # 获取当前安全组
+            current_sgs = service.get_server_security_groups(pk)
+            current_sg_names = set(sg.get('name') for sg in current_sgs)
+            new_sg_names_set = set(new_sg_names)
+            
+            # 计算需要添加和删除的安全组
+            to_add = new_sg_names_set - current_sg_names
+            to_remove = current_sg_names - new_sg_names_set
+            
+            errors = []
+            
+            # 添加新安全组
+            for sg_name in to_add:
+                if not service.add_security_group_to_server(pk, sg_name):
+                    errors.append(f"添加 {sg_name} 失败")
+            
+            # 移除旧安全组
+            for sg_name in to_remove:
+                if not service.remove_security_group_from_server(pk, sg_name):
+                    errors.append(f"移除 {sg_name} 失败")
+            
+            if errors:
+                return Response({
+                    'detail': f'部分操作失败',
+                    'errors': errors,
+                    'added': list(to_add),
+                    'removed': list(to_remove)
+                }, status=status.HTTP_207_MULTI_STATUS)
+            
+            return Response({
+                'detail': '安全组更新成功',
+                'added': list(to_add),
+                'removed': list(to_remove)
+            })
+        except Exception as e:
+            logger.error(f"更新安全组失败: {str(e)}")
+            return Response(
+                {'error': f'更新安全组失败: {str(e)}'},
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR
+            )
+
     def _sync_vm_status_from_openstack(self, openstack_id):
         """从OpenStack同步单个VM的状态到数据库"""
         try:

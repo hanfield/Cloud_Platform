@@ -531,7 +531,7 @@ const Dashboard = () => {
             <span>系统活动日志</span>
           </Space>
         }
-        visible={activityModalVisible}
+        open={activityModalVisible}
         onCancel={() => setActivityModalVisible(false)}
         width={1000}
         footer={[

@@ -857,7 +857,9 @@ def create_virtual_machine(request):
             # 从镜像或实例快照创建
             if image_id:
                 # 直接使用传入的 image_id
-                images = openstack_service.list_images()
+                # 如果是实例快照，需要包含快照在搜索范围内
+                include_snapshots = (source_type == 'instance_snapshot')
+                images = openstack_service.list_images(include_snapshots=include_snapshots)
                 image = next((img for img in images if img.get('id') == image_id), None)
                 if not image:
                     return Response({'error': '指定的镜像不存在'}, status=status.HTTP_400_BAD_REQUEST)
@@ -1181,8 +1183,8 @@ def delete_virtual_machine(request, vm_id):
             virtual_machine=vm,
             operation_type='delete',
             operator=request.user,
-            description=f"删除虚拟机: {vm_name}",
-            status='success'
+            operation_detail=f"删除虚拟机: {vm_name}",
+            success=True
         )
         
         # 删除本地记录

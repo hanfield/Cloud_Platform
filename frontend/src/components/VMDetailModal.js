@@ -51,8 +51,14 @@ const VMDetailModal = ({ visible, vm, flavors = [], onClose, onRefresh }) => {
         setSnapshotsLoading(true);
         try {
             const data = await request.get(`/information-systems/snapshots/?virtual_machine=${vmId}`);
-            // 确保数据是数组格式
-            setSnapshots(Array.isArray(data) ? data : []);
+            // 处理分页响应格式（DRF默认返回 {results: [...]}）或直接数组
+            let snapshotList = [];
+            if (Array.isArray(data)) {
+                snapshotList = data;
+            } else if (data && Array.isArray(data.results)) {
+                snapshotList = data.results;
+            }
+            setSnapshots(snapshotList);
         } catch (error) {
             console.error('获取快照列表失败:', error);
             message.error('获取快照列表失败');
@@ -173,16 +179,26 @@ const VMDetailModal = ({ visible, vm, flavors = [], onClose, onRefresh }) => {
         try {
             const values = await snapshotForm.validateFields();
             const vmId = vm.database_id || vm.id;
-            await request.post('/information-systems/snapshots/', {
-                virtual_machine: vmId,
-                name: values.name,
-                description: values.description || ''
-            });
-            message.success('快照创建请求已提交，请稍候刷新查看');
-            setCreateSnapshotVisible(false);
-            snapshotForm.resetFields();
-            fetchSnapshots();
-            if (onRefresh) onRefresh();
+
+            // 显示加载提示（后端会等待快照完成）
+            const hideLoading = message.loading('正在创建快照，请稍候...', 0);
+
+            try {
+                await request.post('/information-systems/snapshots/', {
+                    virtual_machine: vmId,
+                    name: values.name,
+                    description: values.description || ''
+                });
+                hideLoading();
+                message.success('快照创建成功！');
+                setCreateSnapshotVisible(false);
+                snapshotForm.resetFields();
+                fetchSnapshots();
+                if (onRefresh) onRefresh();
+            } catch (error) {
+                hideLoading();
+                throw error;
+            }
         } catch (error) {
             message.error('创建快照失败: ' + (error.response?.data?.error || '未知错误'));
         }
@@ -479,7 +495,7 @@ const VMDetailModal = ({ visible, vm, flavors = [], onClose, onRefresh }) => {
 
             <Modal
                 title="创建虚拟机快照"
-                visible={createSnapshotVisible}
+                open={createSnapshotVisible}
                 onOk={handleCreateSnapshot}
                 onCancel={() => {
                     setCreateSnapshotVisible(false);
@@ -659,7 +675,7 @@ const VMDetailModal = ({ visible, vm, flavors = [], onClose, onRefresh }) => {
     return (
         <Modal
             title={`虚拟机详情: ${vm?.name || ''}`}
-            visible={visible}
+            open={visible}
             onCancel={onClose}
             width={900}
             footer={[

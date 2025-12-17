@@ -1,13 +1,14 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { Card, Row, Col, Table, Button, Space, Tag, Descriptions, message, Modal, Form, Input, Select, Statistic, Divider, InputNumber, TimePicker, Progress, Popconfirm } from 'antd';
-import { UserOutlined, DesktopOutlined, ShoppingOutlined, PlusOutlined, PoweroffOutlined, PlayCircleOutlined, StopOutlined, TeamOutlined, EyeOutlined, SyncOutlined, ReloadOutlined, ThunderboltOutlined, DatabaseOutlined, CloudServerOutlined, DeleteOutlined } from '@ant-design/icons';
+import { UserOutlined, DesktopOutlined, ShoppingOutlined, PlusOutlined, PoweroffOutlined, PlayCircleOutlined, StopOutlined, TeamOutlined, EyeOutlined, SyncOutlined, ReloadOutlined, ThunderboltOutlined, DatabaseOutlined, CloudServerOutlined, DeleteOutlined, EditOutlined } from '@ant-design/icons';
 import { useLocation, useNavigate } from 'react-router-dom';
 import { PieChart, Pie, Cell, Tooltip, Legend, ResponsiveContainer } from 'recharts';
 import tenantPortalService from '../services/tenantPortalService';
-// cloudService 不再需要 - VM 数据现在通过数据库同步
+import cloudService from '../services/cloudService';
 import api from '../services/api';
 import VMDetailModal from '../components/VMDetailModal';
 import VMCreateWizard from '../components/VMCreateWizard';
+import VMEditModal from '../components/VMEditModal';
 import moment from 'moment';
 import { useFlavors } from '../contexts/ResourceCacheContext';
 import useVMStatusWebSocket from '../hooks/useVMStatusWebSocket';
@@ -37,6 +38,9 @@ const TenantPortal = () => {
   const [resizeForm] = Form.useForm();
   const [resizeModalVisible, setResizeModalVisible] = useState(false);
   const [selectedVmForResize, setSelectedVmForResize] = useState(null);
+  const [vmOperations, setVmOperations] = useState(new Set()); // 跟踪正在操作的VM
+  const [vmEditModalVisible, setVmEditModalVisible] = useState(false);
+  const [selectedVmForEdit, setSelectedVmForEdit] = useState(null);
 
   // 使用缓存 hook 获取 flavors
   const { flavors } = useFlavors();
@@ -135,6 +139,17 @@ const TenantPortal = () => {
   useVMStatusWebSocket(handleWebSocketUpdate);
 
   const handleControlResource = async (resourceId, resourceType, action) => {
+    // 检查是否已有操作在进行
+    if (vmOperations.has(resourceId)) {
+      message.warning('该虚拟机正在执行操作，请等待完成');
+      return;
+    }
+
+    // 标记VM为操作中
+    setVmOperations(prev => new Set(prev).add(resourceId));
+    const actionName = action === 'start' ? '启动' : action === 'stop' ? '停止' : '重启';
+    const hide = message.loading(`正在${actionName}虚拟机...`, 0);
+
     try {
       // 通过后端代理 API 控制资源（不再直接调用 OpenStack）
       // 后端会处理权限验证、并发控制、操作日志等
@@ -144,30 +159,70 @@ const TenantPortal = () => {
         action: action
       });
 
-      message.success(`${action === 'start' ? '启动' : action === 'stop' ? '停止' : '重启'}成功`);
+      hide();
+      message.success(`${actionName}成功`);
+
+      // 操作成功：解锁按钮
+      setVmOperations(prev => {
+        const newSet = new Set(prev);
+        newSet.delete(resourceId);
+        return newSet;
+      });
+
       fetchAllData();
     } catch (error) {
+      hide();
+      // 操作失败：解锁按钮
+      setVmOperations(prev => {
+        const newSet = new Set(prev);
+        newSet.delete(resourceId);
+        return newSet;
+      });
+
       // 处理并发冲突错误 (409 Conflict)
       if (error.response?.status === 409) {
         message.warning(error.response?.data?.error || '该虚拟机正在执行其他操作，请稍后重试');
       } else {
-        message.error(`操作失败: ${error.response?.data?.error || error.message || '未知错误'}`);
+        message.error(`${actionName}失败: ${error.response?.data?.error || error.message || '未知错误'}`);
       }
     }
   };
 
 
   const handleDeleteVM = async (vmId) => {
+    // 检查是否已有操作在进行
+    if (vmOperations.has(vmId)) {
+      message.warning('该虚拟机正在执行操作，请等待完成');
+      return;
+    }
+
+    // 标记VM为操作中
+    setVmOperations(prev => new Set(prev).add(vmId));
+    const hide = message.loading('正在删除虚拟机...', 0);
+
     try {
-      // 通过后端代理 API 删除（不再直接调用 OpenStack）
-      await tenantPortalService.controlResource({
-        resource_id: vmId,
-        resource_type: 'vm',
-        action: 'delete'
-      });
+      // 调用专门的删除虚拟机 API
+      await tenantPortalService.deleteVirtualMachine(vmId);
+      hide();
       message.success('虚拟机删除成功');
+
+      // 操作成功：解锁按钮
+      setVmOperations(prev => {
+        const newSet = new Set(prev);
+        newSet.delete(vmId);
+        return newSet;
+      });
+
       fetchAllData();
     } catch (error) {
+      hide();
+      // 操作失败：解锁按钮
+      setVmOperations(prev => {
+        const newSet = new Set(prev);
+        newSet.delete(vmId);
+        return newSet;
+      });
+
       if (error.response?.status === 409) {
         message.warning(error.response?.data?.error || '该虚拟机正在执行其他操作，请稍后重试');
       } else {
@@ -179,34 +234,57 @@ const TenantPortal = () => {
 
   const handleOpenResizeModal = (vm) => {
     setSelectedVmForResize(vm);
-    // 从 flavor 获取当前配置（兼容多种数据结构）
-    const currentCpu = vm.flavor?.vcpus || vm.cpu || 2;
-    const currentMemory = vm.flavor?.ram ? Math.round(vm.flavor.ram / 1024) : (vm.memory || 4);
-    const currentDisk = vm.flavor?.disk || vm.disk || 100;
-    resizeForm.setFieldsValue({
-      cpu_cores: currentCpu,
-      memory_gb: currentMemory,
-      disk_gb: currentDisk
-    });
+    resizeForm.resetFields();
     setResizeModalVisible(true);
   };
 
   const handleResizeVM = async () => {
+    const vmId = selectedVmForResize?.id;
+    const openstackId = selectedVmForResize?.openstack_id || selectedVmForResize?.id;
+
+    // 检查是否已有操作在进行
+    if (vmId && vmOperations.has(vmId)) {
+      message.warning('该虚拟机正在执行操作，请等待完成');
+      return;
+    }
+
     try {
       const values = await resizeForm.validateFields();
-      // 使用 openstack_id 调用 OpenStack API
-      const openstackId = selectedVmForResize.openstack_id || selectedVmForResize.id;
-      await api.post(`/openstack/servers/${openstackId}/resize/`, {
-        cpu_cores: values.cpu_cores,
-        memory_gb: values.memory_gb
-      });
 
-      message.success('虚拟机配置调整成功');
+      // 标记VM为操作中
+      if (vmId) {
+        setVmOperations(prev => new Set(prev).add(vmId));
+      }
+      const hide = message.loading('正在提交resize请求...', 0);
+
+      // 使用 cloudService 调用 OpenStack resize API
+      await cloudService.resizeServer(openstackId, values.new_flavor_id, false);
+
+      hide();
+      message.success('resize请求已提交，请等待状态变为VERIFY_RESIZE后确认或回滚');
       setResizeModalVisible(false);
       resizeForm.resetFields();
       setSelectedVmForResize(null);
+
+      // 操作成功：解锁按钮
+      if (vmId) {
+        setVmOperations(prev => {
+          const newSet = new Set(prev);
+          newSet.delete(vmId);
+          return newSet;
+        });
+      }
+
       fetchAllData();
     } catch (error) {
+      // 操作失败：解锁按钮
+      if (vmId) {
+        setVmOperations(prev => {
+          const newSet = new Set(prev);
+          newSet.delete(vmId);
+          return newSet;
+        });
+      }
       message.error(`配置调整失败: ${error.message || '未知错误'}`);
     }
   };
@@ -608,46 +686,89 @@ const TenantPortal = () => {
     {
       title: '操作',
       key: 'action',
-      render: (_, record) => (
-        <Space>
-          <Button
-            size="small"
-            icon={<EyeOutlined />}
-            onClick={() => {
-              setSelectedVm(record);
-              setVmDetailModalVisible(true);
-            }}
-          >
-            详情
-          </Button>
-          {record.status === 'running' ? (
-            <Button size="small" danger icon={<StopOutlined />} onClick={() => handleControlResource(record.id, 'vm', 'stop')}>停止</Button>
-          ) : (
-            <Button size="small" type="primary" icon={<PlayCircleOutlined />} onClick={() => handleControlResource(record.id, 'vm', 'start')}>启动</Button>
-          )}
-          {record.status === 'stopped' && (
+      fixed: 'right',
+      width: 280,
+      render: (_, record) => {
+        const isOperating = vmOperations.has(record.id);
+        return (
+          <Space wrap size="small">
             <Button
               size="small"
-              icon={<DesktopOutlined />}
-              onClick={() => handleOpenResizeModal(record)}
+              icon={<EyeOutlined />}
+              onClick={() => {
+                setSelectedVm(record);
+                setVmDetailModalVisible(true);
+              }}
             >
-              调整配置
+              详情
             </Button>
-          )}
-          <Popconfirm
-            title="确定删除此虚拟机吗？"
-            description="删除后数据将无法恢复，请谨慎操作"
-            onConfirm={() => handleDeleteVM(record.openstack_id || record.id)}
-            okText="确定"
-            cancelText="取消"
-            okButtonProps={{ danger: true }}
-          >
-            <Button size="small" danger icon={<DeleteOutlined />}>
-              删除
+            <Button
+              size="small"
+              icon={<EditOutlined />}
+              style={{ color: '#13c2c2', borderColor: '#13c2c2' }}
+              onClick={() => {
+                setSelectedVmForEdit(record);
+                setVmEditModalVisible(true);
+              }}
+            >
+              编辑
             </Button>
-          </Popconfirm>
-        </Space>
-      )
+            {record.status === 'running' ? (
+              <Button
+                size="small"
+                danger
+                icon={<StopOutlined />}
+                onClick={() => handleControlResource(record.id, 'vm', 'stop')}
+                disabled={isOperating}
+                loading={isOperating}
+              >
+                {isOperating ? '停止中' : '停止'}
+              </Button>
+            ) : (
+              <Button
+                size="small"
+                type="primary"
+                icon={<PlayCircleOutlined />}
+                onClick={() => handleControlResource(record.id, 'vm', 'start')}
+                disabled={isOperating}
+                loading={isOperating}
+              >
+                {isOperating ? '启动中' : '启动'}
+              </Button>
+            )}
+            {record.status === 'stopped' && (
+              <Button
+                size="small"
+                style={{ color: '#722ed1', borderColor: '#722ed1' }}
+                icon={<DesktopOutlined />}
+                onClick={() => handleOpenResizeModal(record)}
+                disabled={isOperating}
+              >
+                调整配置
+              </Button>
+            )}
+            <Popconfirm
+              title="确定删除此虚拟机吗？"
+              description="删除后数据将无法恢复，请谨慎操作"
+              onConfirm={() => handleDeleteVM(record.id)}
+              okText="确定"
+              cancelText="取消"
+              okButtonProps={{ danger: true }}
+              disabled={isOperating}
+            >
+              <Button
+                size="small"
+                danger
+                icon={<DeleteOutlined />}
+                disabled={isOperating}
+                loading={isOperating}
+              >
+                {isOperating ? '删除中' : '删除'}
+              </Button>
+            </Popconfirm>
+          </Space>
+        );
+      }
     }
   ];
 
@@ -741,7 +862,7 @@ const TenantPortal = () => {
               style={{ marginBottom: 16 }}
             >
               <h4>虚拟机资源</h4>
-              <Table dataSource={displayVMs} rowKey="name" columns={vmColumns} pagination={false} />
+              <Table dataSource={displayVMs} rowKey="name" columns={vmColumns} pagination={false} scroll={{ x: 1200 }} />
 
               <Divider />
 
@@ -806,7 +927,7 @@ const TenantPortal = () => {
   };
 
   return (
-    <div style={{ padding: '24px' }} >
+    <div style={{ padding: '24px', minWidth: '800px' }} >
       {activeTab === 'overview' && renderOverview()}
       {activeTab === 'info' && renderTenantInfo()}
       {activeTab === 'systems' && renderSystems()}
@@ -887,6 +1008,16 @@ const TenantPortal = () => {
         onRefresh={fetchAllData}
       />
 
+      <VMEditModal
+        visible={vmEditModalVisible}
+        vm={selectedVmForEdit}
+        onClose={() => {
+          setVmEditModalVisible(false);
+          setSelectedVmForEdit(null);
+        }}
+        onSuccess={fetchAllData}
+      />
+
       {/* 虚拟机配置调整模态框 */}
       <Modal
         title="调整虚拟机配置"
@@ -897,43 +1028,43 @@ const TenantPortal = () => {
           resizeForm.resetFields();
           setSelectedVmForResize(null);
         }}
-        okText="确认调整"
+        okText="提交resize"
         cancelText="取消"
       >
         {selectedVmForResize && (
           <div style={{ marginBottom: 16 }}>
             <p><strong>虚拟机名称：</strong>{selectedVmForResize.name}</p>
-            <p><strong>当前配置：</strong>{selectedVmForResize.cpu}核 / {selectedVmForResize.memory}GB / {selectedVmForResize.disk}GB</p>
+            <p><strong>当前配置：</strong>
+              {selectedVmForResize.flavor?.name || '未知'}
+              ({selectedVmForResize.flavor?.vcpus || selectedVmForResize.cpu || '?'}核 /
+              {selectedVmForResize.flavor?.ram ? Math.round(selectedVmForResize.flavor.ram / 1024) : (selectedVmForResize.memory || '?')}GB RAM /
+              {selectedVmForResize.flavor?.disk || selectedVmForResize.disk || '?'}GB 磁盘)
+            </p>
             <Divider />
           </div>
         )}
         <Form form={resizeForm} layout="vertical">
           <Form.Item
-            label="CPU (核数)"
-            name="cpu_cores"
-            rules={[{ required: true, message: '请输入CPU核数' }]}
+            label="选择新的实例类型 (Flavor)"
+            name="new_flavor_id"
+            rules={[{ required: true, message: '请选择新的实例类型' }]}
           >
-            <InputNumber min={1} max={64} style={{ width: '100%' }} />
-          </Form.Item>
-          <Form.Item
-            label="内存 (GB)"
-            name="memory_gb"
-            rules={[{ required: true, message: '请输入内存大小' }]}
-          >
-            <InputNumber min={1} max={256} style={{ width: '100%' }} />
-          </Form.Item>
-          <Form.Item
-            label="磁盘 (GB)"
-            name="disk_gb"
-            rules={[{ required: true, message: '请输入磁盘大小' }]}
-          >
-            <InputNumber min={10} max={2000} style={{ width: '100%' }} />
+            <Select placeholder="选择新配置" showSearch optionFilterProp="children">
+              {flavors
+                .filter(f => f.id !== selectedVmForResize?.flavor?.id)
+                .map(flavor => (
+                  <Select.Option key={flavor.id} value={flavor.id}>
+                    {flavor.name} ({flavor.vcpus}核 / {Math.round(flavor.ram / 1024)}GB / {flavor.disk}GB)
+                  </Select.Option>
+                ))}
+            </Select>
           </Form.Item>
         </Form>
-        <div style={{ marginTop: 16, padding: 12, background: '#f0f2f5', borderRadius: 4 }}>
-          <p style={{ margin: 0, fontSize: 12, color: '#666' }}>
-            ⚠️ 注意：调整配置需要虚拟机处于停止状态。调整完成后请手动启动虚拟机。
-          </p>
+        <div style={{ marginTop: 16, padding: 12, background: '#fffbe6', border: '1px solid #ffe58f', borderRadius: 4 }}>
+          <p style={{ margin: '4px 0', fontSize: 12, color: '#d48806' }}>⚠️ <strong>Resize注意事项：</strong></p>
+          <p style={{ margin: '4px 0', fontSize: 12, color: '#666' }}>• VM会在resize期间重启</p>
+          <p style={{ margin: '4px 0', fontSize: 12, color: '#666' }}>• 提交后VM状态变为VERIFY_RESIZE</p>
+          <p style={{ margin: '4px 0', fontSize: 12, color: '#666' }}>• 您可以在新配置下测试VM，然后选择<strong>确认</strong>或<strong>回滚</strong></p>
         </div>
       </Modal>
     </div >
