@@ -139,6 +139,18 @@ STATICFILES_DIRS = [
 MEDIA_URL = '/media/'
 MEDIA_ROOT = BASE_DIR / 'media'
 
+# 大文件上传配置
+# 允许上传的最大数据量（10GB）
+DATA_UPLOAD_MAX_MEMORY_SIZE = 10 * 1024 * 1024 * 1024  # 10GB
+# 超过此大小时使用临时文件存储（10MB）
+FILE_UPLOAD_MAX_MEMORY_SIZE = 10 * 1024 * 1024  # 10MB
+# 使用临时文件处理器处理大文件上传
+FILE_UPLOAD_HANDLERS = [
+    'django.core.files.uploadhandler.TemporaryFileUploadHandler',
+]
+# 临时文件目录（使用磁盘而不是 tmpfs）
+FILE_UPLOAD_TEMP_DIR = '/opt/yunpingtai/uploads'
+
 # Default primary key field type
 DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
 

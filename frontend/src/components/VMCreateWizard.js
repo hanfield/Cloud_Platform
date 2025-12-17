@@ -414,6 +414,11 @@ const VMCreateWizard = ({ visible, onCancel, onSuccess, systems, selectedSystemI
             setLoading(true);
             const values = await form.validateFields();
 
+            // 调试：打印表单值
+            console.log('Form values:', values);
+            console.log('isAdmin:', isAdmin);
+            console.log('tenantSystems:', tenantSystems);
+
             // 构建创建数据
             const vmData = {
                 name: values.name,
@@ -427,6 +432,9 @@ const VMCreateWizard = ({ visible, onCancel, onSuccess, systems, selectedSystemI
                 source_id: selectedSource?.id
             };
 
+            // 调试：打印要发送的数据
+            console.log('VM Data to send:', vmData);
+
             // 根据源类型设置相应字段
             if (sourceType === 'image' || sourceType === 'instance_snapshot') {
                 vmData.image_id = selectedSource.id;
@@ -436,215 +444,210 @@ const VMCreateWizard = ({ visible, onCancel, onSuccess, systems, selectedSystemI
                 vmData.snapshot_id = selectedSource.id;
             }
 
-            await tenantPortalService.createVirtualMachine(vmData);
+            // 根据是否为管理员选择不同的 API
+            if (isAdmin) {
+                // 管理员使用管理员 API
+                await api.post('/tenants/admin/create-vm/', vmData);
+            } else {
+                // 普通租户用户使用门户 API
+                await tenantPortalService.createVirtualMachine(vmData);
+            }
+
             message.success('虚拟机创建成功');
             form.resetFields();
             onSuccess && onSuccess();
             onCancel();
         } catch (error) {
             console.error('创建虚拟机失败:', error);
-            message.error('创建虚拟机失败: ' + (error.message || '未知错误'));
+            const errorMsg = error.response?.data?.error || error.message || '未知错误';
+            message.error('创建虚拟机失败: ' + errorMsg);
         } finally {
             setLoading(false);
         }
     };
 
-    const renderStepContent = () => {
-        switch (currentStep) {
-            case 0:
-                // 步骤1: 详情
-                return (
-                    <div style={{ padding: '20px 0' }}>
-                        {isAdmin && (
-                            <Form.Item
-                                name="tenant_id"
-                                label="选择租户"
-                                rules={[{ required: true, message: '请选择租户' }]}
+    // 使用 CSS display 来控制步骤显示，而不是条件渲染
+    // 这样可以确保所有表单项始终保持挂载状态，不会丢失值
+    const renderAllSteps = () => {
+        return (
+            <>
+                {/* 步骤1: 详情 */}
+                <div style={{ display: currentStep === 0 ? 'block' : 'none', padding: '20px 0' }}>
+                    {isAdmin && (
+                        <Form.Item
+                            name="tenant_id"
+                            label="选择租户"
+                            rules={[{ required: true, message: '请选择租户' }]}
+                        >
+                            <Select
+                                placeholder="请选择租户"
+                                onChange={(value) => {
+                                    setSelectedTenantId(value);
+                                    form.setFieldsValue({ system_id: undefined });
+                                }}
                             >
+                                {tenants.map(tenant => (
+                                    <Option key={tenant.id} value={tenant.id}>{tenant.name}</Option>
+                                ))}
+                            </Select>
+                        </Form.Item>
+                    )}
+
+                    <Form.Item
+                        name="name"
+                        label="实例名称"
+                        rules={[{ required: true, message: '请输入实例名称' }]}
+                    >
+                        <Input placeholder="例如: web-server-01" />
+                    </Form.Item>
+
+                    <Form.Item
+                        name="system_id"
+                        label="所属信息系统"
+                        initialValue={selectedSystemId}
+                        rules={[{ required: true, message: '请选择所属信息系统' }]}
+                    >
+                        <Select placeholder="请选择信息系统" disabled={!!selectedSystemId || (isAdmin && !selectedTenantId)}>
+                            {(isAdmin ? tenantSystems : systems).map(sys => (
+                                <Option key={sys.id} value={sys.id}>{sys.name}</Option>
+                            ))}
+                        </Select>
+                    </Form.Item>
+
+                    <Form.Item name="description" label="描述">
+                        <TextArea rows={3} placeholder="虚拟机用途描述" />
+                    </Form.Item>
+                </div>
+
+                {/* 步骤2: 源 */}
+                <div style={{ display: currentStep === 1 ? 'block' : 'none', padding: '20px 0' }}>
+                    <Card size="small" style={{ marginBottom: 16 }}>
+                        <Row gutter={16} align="middle">
+                            <Col span={6}>
+                                <strong>选择源类型：</strong>
+                            </Col>
+                            <Col span={18}>
                                 <Select
-                                    placeholder="请选择租户"
+                                    value={sourceType}
                                     onChange={(value) => {
-                                        setSelectedTenantId(value);
-                                        form.setFieldsValue({ system_id: undefined }); // 清空系统选择
+                                        setSourceType(value);
+                                        setSelectedSource(null);
                                     }}
+                                    style={{ width: '100%' }}
                                 >
-                                    {tenants.map(tenant => (
-                                        <Option key={tenant.id} value={tenant.id}>{tenant.name}</Option>
-                                    ))}
+                                    <Option value="image">镜像 (Image)</Option>
+                                    <Option value="instance_snapshot">实例快照 (Instance Snapshot)</Option>
+                                    <Option value="volume">卷 (Volume)</Option>
+                                    <Option value="volume_snapshot">卷快照 (Volume Snapshot)</Option>
                                 </Select>
-                            </Form.Item>
-                        )}
+                            </Col>
+                        </Row>
+                    </Card>
 
-                        <Form.Item
-                            name="name"
-                            label="实例名称"
-                            rules={[{ required: true, message: '请输入实例名称' }]}
-                        >
-                            <Input placeholder="例如: web-server-01" />
-                        </Form.Item>
-
-                        <Form.Item
-                            name="system_id"
-                            label="所属信息系统"
-                            initialValue={selectedSystemId}
-                            rules={[{ required: true, message: '请选择所属信息系统' }]}
-                        >
-                            <Select placeholder="请选择信息系统" disabled={!!selectedSystemId || (isAdmin && !selectedTenantId)}>
-                                {(isAdmin ? tenantSystems : systems).map(sys => (
-                                    <Option key={sys.id} value={sys.id}>{sys.name}</Option>
-                                ))}
-                            </Select>
-                        </Form.Item>
-
-                        <Form.Item name="description" label="描述">
-                            <TextArea rows={3} placeholder="虚拟机用途描述" />
-                        </Form.Item>
-                    </div>
-                );
-
-            case 1:
-                // 步骤2: 源
-                return (
-                    <div style={{ padding: '20px 0' }}>
-                        <Card size="small" style={{ marginBottom: 16 }}>
-                            <Row gutter={16} align="middle">
-                                <Col span={6}>
-                                    <strong>选择源类型：</strong>
-                                </Col>
-                                <Col span={18}>
-                                    <Select
-                                        value={sourceType}
-                                        onChange={(value) => {
-                                            setSourceType(value);
-                                            setSelectedSource(null);
-                                        }}
-                                        style={{ width: '100%' }}
-                                    >
-                                        <Option value="image">镜像 (Image)</Option>
-                                        <Option value="instance_snapshot">实例快照 (Instance Snapshot)</Option>
-                                        <Option value="volume">卷 (Volume)</Option>
-                                        <Option value="volume_snapshot">卷快照 (Volume Snapshot)</Option>
-                                    </Select>
-                                </Col>
-                            </Row>
+                    {selectedSource && (
+                        <Card size="small" style={{ marginBottom: 16, background: '#e6f7ff' }}>
+                            <div><strong>已选择:</strong> {selectedSource.name || selectedSource.id?.substring(0, 8) + '...' || '-'}</div>
                         </Card>
+                    )}
 
-                        {selectedSource && (
-                            <Card size="small" style={{ marginBottom: 16, background: '#e6f7ff' }}>
-                                <div><strong>已选择:</strong> {selectedSource.name || selectedSource.id?.substring(0, 8) + '...' || '-'}</div>
-                            </Card>
-                        )}
-
-                        <Card title="可用资源" size="small">
-                            <Table
-                                dataSource={getSourceData()}
-                                columns={sourceColumns}
-                                rowKey="id"
-                                size="small"
-                                pagination={{ pageSize: 5 }}
-                            />
-                        </Card>
-                    </div>
-                );
-
-            case 2:
-                // 步骤3: 实例类型
-                return (
-                    <div style={{ padding: '20px 0' }}>
-                        <Form.Item
-                            name="flavor_id"
-                            label="实例类型"
-                            rules={[{ required: true, message: '请选择实例类型' }]}
-                        >
-                            <Select
-                                placeholder="请选择实例类型"
-                                showSearch
-                                optionFilterProp="children"
-                            >
-                                {flavors.map(flavor => (
-                                    <Option key={flavor.id} value={flavor.id}>
-                                        {flavor.name} ({flavor.vcpus}核 / {(flavor.ram / 1024).toFixed(1)}GB / {flavor.disk}GB)
-                                    </Option>
-                                ))}
-                            </Select>
-                        </Form.Item>
-
+                    <Card title="可用资源" size="small">
                         <Table
-                            dataSource={flavors}
-                            columns={flavorColumns}
+                            dataSource={getSourceData()}
+                            columns={sourceColumns}
                             rowKey="id"
                             size="small"
                             pagination={{ pageSize: 5 }}
                         />
-                    </div>
-                );
+                    </Card>
+                </div>
 
-            case 3:
-                // 步骤4: 网络
-                return (
-                    <div style={{ padding: '20px 0' }}>
-                        <Form.Item
-                            name="network_id"
-                            label="网络"
-                            rules={[{ required: true, message: '请选择网络' }]}
+                {/* 步骤3: 实例类型 */}
+                <div style={{ display: currentStep === 2 ? 'block' : 'none', padding: '20px 0' }}>
+                    <Form.Item
+                        name="flavor_id"
+                        label="实例类型"
+                        rules={[{ required: true, message: '请选择实例类型' }]}
+                    >
+                        <Select
+                            placeholder="请选择实例类型"
+                            showSearch
+                            optionFilterProp="children"
                         >
-                            <Select
-                                placeholder="请选择网络"
-                                showSearch
-                                optionFilterProp="children"
-                            >
-                                {networks.map(network => (
-                                    <Option key={network.id} value={network.id}>
-                                        {network.name} ({network.status})
-                                    </Option>
-                                ))}
-                            </Select>
-                        </Form.Item>
+                            {flavors.map(flavor => (
+                                <Option key={flavor.id} value={flavor.id}>
+                                    {flavor.name} ({flavor.vcpus}核 / {(flavor.ram / 1024).toFixed(1)}GB / {flavor.disk}GB)
+                                </Option>
+                            ))}
+                        </Select>
+                    </Form.Item>
 
-                        <Table
-                            dataSource={networks}
-                            columns={networkColumns}
-                            rowKey="id"
-                            size="small"
-                            pagination={{ pageSize: 5 }}
-                        />
-                    </div>
-                );
+                    <Table
+                        dataSource={flavors}
+                        columns={flavorColumns}
+                        rowKey="id"
+                        size="small"
+                        pagination={{ pageSize: 5 }}
+                    />
+                </div>
 
-            case 4:
-                // 步骤5: 配置
-                return (
-                    <div style={{ padding: '20px 0' }}>
-                        <Form.Item name="data_center_type" label="数据中心类型" initialValue="production">
-                            <Select>
-                                <Option value="production">生产环境</Option>
-                                <Option value="local_dr">同城灾备</Option>
-                                <Option value="remote_dr">异地灾备</Option>
-                                <Option value="development">开发环境</Option>
-                                <Option value="testing">测试环境</Option>
-                            </Select>
-                        </Form.Item>
+                {/* 步骤4: 网络 */}
+                <div style={{ display: currentStep === 3 ? 'block' : 'none', padding: '20px 0' }}>
+                    <Form.Item
+                        name="network_id"
+                        label="网络"
+                        rules={[{ required: true, message: '请选择网络' }]}
+                    >
+                        <Select
+                            placeholder="请选择网络"
+                            showSearch
+                            optionFilterProp="children"
+                        >
+                            {networks.map(network => (
+                                <Option key={network.id} value={network.id}>
+                                    {network.name} ({network.status})
+                                </Option>
+                            ))}
+                        </Select>
+                    </Form.Item>
 
-                        <Form.Item name="availability_zone" label="可用区">
-                            <Select placeholder="请选择可用区（可选）" allowClear>
-                                {availabilityZones.map(zone => (
-                                    <Option key={zone.name} value={zone.name}>{zone.name}</Option>
-                                ))}
-                            </Select>
-                        </Form.Item>
+                    <Table
+                        dataSource={networks}
+                        columns={networkColumns}
+                        rowKey="id"
+                        size="small"
+                        pagination={{ pageSize: 5 }}
+                    />
+                </div>
 
-                        <Card title="配置摘要" size="small" style={{ marginTop: 20 }}>
-                            <p><strong>实例名称:</strong> {form.getFieldValue('name') || '-'}</p>
-                            <p><strong>启动源:</strong> {selectedSource?.name || '-'} ({sourceType})</p>
-                            <p><strong>实例类型:</strong> {flavors.find(f => f.id === form.getFieldValue('flavor_id'))?.name || '-'}</p>
-                            <p><strong>网络:</strong> {networks.find(n => n.id === form.getFieldValue('network_id'))?.name || '-'}</p>
-                        </Card>
-                    </div>
-                );
+                {/* 步骤5: 配置 */}
+                <div style={{ display: currentStep === 4 ? 'block' : 'none', padding: '20px 0' }}>
+                    <Form.Item name="data_center_type" label="数据中心类型" initialValue="production">
+                        <Select>
+                            <Option value="production">生产环境</Option>
+                            <Option value="local_dr">同城灾备</Option>
+                            <Option value="remote_dr">异地灾备</Option>
+                            <Option value="development">开发环境</Option>
+                            <Option value="testing">测试环境</Option>
+                        </Select>
+                    </Form.Item>
 
-            default:
-                return null;
-        }
+                    <Form.Item name="availability_zone" label="可用区">
+                        <Select placeholder="请选择可用区（可选）" allowClear>
+                            {availabilityZones.map(zone => (
+                                <Option key={zone.name} value={zone.name}>{zone.name}</Option>
+                            ))}
+                        </Select>
+                    </Form.Item>
+
+                    <Card title="配置摘要" size="small" style={{ marginTop: 20 }}>
+                        <p><strong>实例名称:</strong> {form.getFieldValue('name') || '-'}</p>
+                        <p><strong>启动源:</strong> {selectedSource?.name || '-'} ({sourceType})</p>
+                        <p><strong>实例类型:</strong> {flavors.find(f => f.id === form.getFieldValue('flavor_id'))?.name || '-'}</p>
+                        <p><strong>网络:</strong> {networks.find(n => n.id === form.getFieldValue('network_id'))?.name || '-'}</p>
+                    </Card>
+                </div>
+            </>
+        );
     };
 
     return (
@@ -687,7 +690,7 @@ const VMCreateWizard = ({ visible, onCancel, onSuccess, systems, selectedSystemI
             </Steps>
 
             <Form form={form} layout="vertical">
-                {renderStepContent()}
+                {renderAllSteps()}
             </Form>
         </Modal>
     );

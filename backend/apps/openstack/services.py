@@ -192,9 +192,10 @@ class OpenStackService:
 
     def create_server(self, name: str, image_id: str, flavor_id: str,
                       network_ids: List[str], **kwargs) -> Dict[str, Any]:
-        """创建服务器实例（从镜像启动，不创建新卷）
+        """创建服务器实例（从镜像启动）
         
-        使用 destination_type='local' 确保使用临时磁盘，不创建 Cinder 卷
+        使用传统方式：直接传入 image_id，让 Nova 自动处理启动方式
+        这与 Horizon 的"不创建新卷"选项行为一致
         """
         try:
             conn = self.get_connection()
@@ -202,28 +203,20 @@ class OpenStackService:
             # 构建网络配置
             networks = [{'uuid': net_id} for net_id in network_ids]
             
-            # 构建 block_device_mapping_v2 - 明确指定不创建新卷
-            # destination_type='local' 表示使用本地临时磁盘
-            block_device_mapping_v2 = [{
-                'boot_index': 0,
-                'uuid': image_id,
-                'source_type': 'image',
-                'destination_type': 'local',  # 关键：使用本地磁盘，不创建卷
-                'delete_on_termination': True
-            }]
-            
             # 详细日志
             logger.info(f"创建服务器 - 名称: {name}")
             logger.info(f"创建服务器 - 镜像ID: {image_id}")
             logger.info(f"创建服务器 - Flavor ID: {flavor_id}")
             logger.info(f"创建服务器 - 网络: {network_ids}")
-            logger.info(f"创建服务器 - 模式: 从镜像启动（destination_type=local，不创建卷）")
+            logger.info(f"创建服务器 - 模式: 直接使用 image_id（与 Horizon 相同）")
 
+            # 不使用 block_device_mapping，直接传入 image_id
+            # 这与 Horizon "不创建新卷" 选项的行为一致
             server = conn.compute.create_server(
                 name=name,
+                image_id=image_id,
                 flavor_id=flavor_id,
                 networks=networks,
-                block_device_mapping=block_device_mapping_v2,
                 **kwargs
             )
 
@@ -287,77 +280,203 @@ class OpenStackService:
             logger.error(f"删除服务器失败: {str(e)}")
             return False
 
-    def start_server(self, server_id: str) -> bool:
-        """启动服务器"""
+    def start_server(self, server_id: str, wait: bool = True, timeout: int = 60) -> bool:
+        """启动服务器
+        
+        Args:
+            server_id: 服务器ID
+            wait: 是否等待启动完成
+            timeout: 等待超时时间（秒）
+        """
+        import time
+        
         try:
             conn = self.get_connection()
             conn.compute.start_server(server_id)
-            logger.info(f"启动服务器成功: {server_id}")
+            logger.info(f"已发送启动命令: {server_id}")
+            
+            if wait:
+                # 等待服务器状态变为 ACTIVE
+                start_time = time.time()
+                while time.time() - start_time < timeout:
+                    server = conn.compute.get_server(server_id)
+                    if server and server.status == 'ACTIVE':
+                        logger.info(f"服务器启动完成: {server_id}")
+                        return True
+                    time.sleep(1)
+                logger.warning(f"等待服务器启动超时: {server_id}")
+            
             return True
         except Exception as e:
             logger.error(f"启动服务器失败: {str(e)}")
             return False
 
-    def stop_server(self, server_id: str) -> bool:
-        """停止服务器"""
+    def stop_server(self, server_id: str, wait: bool = True, timeout: int = 60) -> bool:
+        """停止服务器
+        
+        Args:
+            server_id: 服务器ID
+            wait: 是否等待停止完成
+            timeout: 等待超时时间（秒）
+        """
+        import time
+        
         try:
             conn = self.get_connection()
             conn.compute.stop_server(server_id)
-            logger.info(f"停止服务器成功: {server_id}")
+            logger.info(f"已发送停止命令: {server_id}")
+            
+            if wait:
+                # 等待服务器状态变为 SHUTOFF
+                start_time = time.time()
+                while time.time() - start_time < timeout:
+                    server = conn.compute.get_server(server_id)
+                    if server and server.status == 'SHUTOFF':
+                        logger.info(f"服务器停止完成: {server_id}")
+                        return True
+                    time.sleep(1)
+                logger.warning(f"等待服务器停止超时: {server_id}")
+            
             return True
         except Exception as e:
             logger.error(f"停止服务器失败: {str(e)}")
             return False
 
-    def reboot_server(self, server_id: str, reboot_type: str = 'SOFT') -> bool:
+    def reboot_server(self, server_id: str, reboot_type: str = 'SOFT', wait: bool = True, timeout: int = 120) -> bool:
         """重启服务器
         
         Args:
             server_id: 服务器ID
             reboot_type: 重启类型 'SOFT'(优雅重启) 或 'HARD'(强制重启)
+            wait: 是否等待重启完成
+            timeout: 等待超时时间（秒）
         """
+        import time
+        
         try:
             conn = self.get_connection()
             # OpenStack SDK expects uppercase SOFT or HARD
             conn.compute.reboot_server(server_id, reboot_type.upper())
-            logger.info(f"重启服务器成功: {server_id} (类型: {reboot_type})")
+            logger.info(f"已发送重启命令: {server_id} (类型: {reboot_type})")
+            
+            if wait:
+                # 等待服务器重启完成（状态变回 ACTIVE）
+                # 重启时先变为 REBOOT，然后变为 ACTIVE
+                start_time = time.time()
+                seen_reboot = False
+                while time.time() - start_time < timeout:
+                    server = conn.compute.get_server(server_id)
+                    if server:
+                        if server.status == 'REBOOT':
+                            seen_reboot = True
+                        elif server.status == 'ACTIVE' and seen_reboot:
+                            logger.info(f"服务器重启完成: {server_id}")
+                            return True
+                        elif server.status == 'ACTIVE' and time.time() - start_time > 5:
+                            # 如果5秒后仍是ACTIVE可能没有进入REBOOT状态，也认为完成
+                            logger.info(f"服务器重启完成: {server_id}")
+                            return True
+                    time.sleep(1)
+                logger.warning(f"等待服务器重启超时: {server_id}")
+            
             return True
         except Exception as e:
             logger.error(f"重启服务器失败: {str(e)}")
             return False
 
-    def resize_server(self, server_id: str, flavor_id: str) -> bool:
-        """调整服务器配置"""
+    def resize_server(self, server_id: str, flavor_id: str, wait: bool = True, timeout: int = 120) -> bool:
+        """调整服务器配置
+        
+        Args:
+            server_id: 服务器ID
+            flavor_id: 新的规格ID
+            wait: 是否等待resize进入VERIFY_RESIZE状态
+            timeout: 等待超时时间（秒）
+        """
+        import time
+        
         try:
             conn = self.get_connection()
             conn.compute.resize_server(server_id, flavor_id)
-            # 自动确认调整
-            # 注意：实际生产中可能需要等待状态变为VERIFY_RESIZE后再确认
-            # 这里简单处理，OpenStack SDK可能会自动处理或需要异步确认
-            # 为简单起见，我们假设调整请求提交成功即可
-            logger.info(f"调整服务器配置请求已提交: {server_id} -> {flavor_id}")
+            logger.info(f"已发送resize命令: {server_id} -> {flavor_id}")
+            
+            if wait:
+                # 等待服务器状态变为 VERIFY_RESIZE
+                start_time = time.time()
+                while time.time() - start_time < timeout:
+                    server = conn.compute.get_server(server_id)
+                    if server:
+                        if server.status == 'VERIFY_RESIZE':
+                            logger.info(f"服务器resize完成，等待确认: {server_id}")
+                            return True
+                        elif server.status == 'ERROR':
+                            logger.error(f"服务器resize失败: {server_id}")
+                            return False
+                    time.sleep(2)
+                logger.warning(f"等待服务器resize超时: {server_id}")
+            
             return True
         except Exception as e:
-            logger.error(f"调整服务器配置失败: {str(e)}")
+            logger.error(f"调整服务器规格失败: {str(e)}")
             return False
 
-    def pause_server(self, server_id: str) -> bool:
-        """暂停服务器"""
+    def pause_server(self, server_id: str, wait: bool = True, timeout: int = 60) -> bool:
+        """暂停服务器
+        
+        Args:
+            server_id: 服务器ID
+            wait: 是否等待暂停完成
+            timeout: 等待超时时间（秒）
+        """
+        import time
+        
         try:
             conn = self.get_connection()
             conn.compute.pause_server(server_id)
-            logger.info(f"暂停服务器成功: {server_id}")
+            logger.info(f"已发送暂停命令: {server_id}")
+            
+            if wait:
+                # 等待服务器状态变为 PAUSED
+                start_time = time.time()
+                while time.time() - start_time < timeout:
+                    server = conn.compute.get_server(server_id)
+                    if server and server.status == 'PAUSED':
+                        logger.info(f"服务器暂停完成: {server_id}")
+                        return True
+                    time.sleep(1)
+                logger.warning(f"等待服务器暂停超时: {server_id}")
+            
             return True
         except Exception as e:
             logger.error(f"暂停服务器失败: {str(e)}")
             return False
 
-    def unpause_server(self, server_id: str) -> bool:
-        """恢复服务器"""
+    def unpause_server(self, server_id: str, wait: bool = True, timeout: int = 60) -> bool:
+        """恢复服务器
+        
+        Args:
+            server_id: 服务器ID
+            wait: 是否等待恢复完成
+            timeout: 等待超时时间（秒）
+        """
+        import time
+        
         try:
             conn = self.get_connection()
             conn.compute.unpause_server(server_id)
-            logger.info(f"恢复服务器成功: {server_id}")
+            logger.info(f"已发送恢复命令: {server_id}")
+            
+            if wait:
+                # 等待服务器状态变为 ACTIVE
+                start_time = time.time()
+                while time.time() - start_time < timeout:
+                    server = conn.compute.get_server(server_id)
+                    if server and server.status == 'ACTIVE':
+                        logger.info(f"服务器恢复完成: {server_id}")
+                        return True
+                    time.sleep(1)
+                logger.warning(f"等待服务器恢复超时: {server_id}")
+            
             return True
         except Exception as e:
             logger.error(f"恢复服务器失败: {str(e)}")
@@ -477,15 +596,66 @@ class OpenStackService:
             raise SDKException(f"创建镜像失败: {str(e)}")
 
     def upload_image(self, image_id: str, data) -> bool:
-        """上传镜像数据"""
+        """上传镜像数据
+        
+        Args:
+            image_id: 镜像ID
+            data: 文件对象或二进制数据。支持 Django 的 UploadedFile 对象。
+        """
+        import tempfile
+        import os
+        
+        temp_file_path = None
         try:
             conn = self.get_connection()
-            conn.image.upload_image(image_id, data)
+            
+            # 获取镜像对象
+            image = conn.image.get_image(image_id)
+            if not image:
+                raise SDKException(f"找不到镜像: {image_id}")
+            
+            # 先将上传的文件保存到临时文件，避免占用大量内存
+            with tempfile.NamedTemporaryFile(delete=False, suffix='.img') as tmp:
+                temp_file_path = tmp.name
+                
+                if hasattr(data, 'read'):
+                    # 分块写入，避免一次性读取全部内容到内存
+                    if hasattr(data, 'seek'):
+                        data.seek(0)
+                    chunk_size = 1024 * 1024  # 1MB chunks
+                    total_size = 0
+                    while True:
+                        chunk = data.read(chunk_size)
+                        if not chunk:
+                            break
+                        tmp.write(chunk)
+                        total_size += len(chunk)
+                    logger.info(f"临时文件已创建: {temp_file_path}, 大小: {total_size / (1024*1024):.2f} MB")
+                elif isinstance(data, bytes):
+                    tmp.write(data)
+                    logger.info(f"临时文件已创建: {temp_file_path}, 大小: {len(data) / (1024*1024):.2f} MB")
+                else:
+                    raise ValueError(f"不支持的数据类型: {type(data)}")
+            
+            # 使用 OpenStack SDK 从文件上传
+            # upload_image 接受 filename 参数
+            with open(temp_file_path, 'rb') as f:
+                conn.image.upload_image(image, data=f)
+            
             logger.info(f"上传镜像数据成功: {image_id}")
             return True
+            
         except Exception as e:
             logger.error(f"上传镜像数据失败: {str(e)}")
             raise SDKException(f"上传镜像数据失败: {str(e)}")
+        finally:
+            # 清理临时文件
+            if temp_file_path and os.path.exists(temp_file_path):
+                try:
+                    os.unlink(temp_file_path)
+                    logger.info(f"临时文件已删除: {temp_file_path}")
+                except Exception as e:
+                    logger.warning(f"删除临时文件失败: {e}")
 
     def update_image(self, image_id: str, **kwargs) -> Dict[str, Any]:
         """更新镜像元数据"""

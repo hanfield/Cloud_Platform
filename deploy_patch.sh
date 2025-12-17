@@ -73,6 +73,9 @@ server {
     listen 80;
     server_name _;
 
+    # 允许大文件上传（镜像文件可能很大）
+    client_max_body_size 10G;
+
     # Frontend
     location / {
         root ${PROJECT_DIR}/frontend/build;
@@ -115,6 +118,24 @@ server {
     # Static files
     location /static/ {
         alias ${PROJECT_DIR}/backend/staticfiles/;
+    }
+
+    # OpenStack Glance 代理（用于镜像直接上传）
+    location /glance-proxy/ {
+        # 代理到 OpenStack Glance API
+        proxy_pass http://192.168.100.105:9292/;
+        proxy_set_header Host \$host;
+        proxy_set_header X-Real-IP \$remote_addr;
+        proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
+        # 大文件上传需要较长超时
+        proxy_read_timeout 3600s;
+        proxy_send_timeout 3600s;
+        proxy_connect_timeout 60s;
+        # 禁用缓冲，直接流式传输
+        proxy_buffering off;
+        proxy_request_buffering off;
+        # 支持大文件
+        client_max_body_size 10G;
     }
 }
 EOF

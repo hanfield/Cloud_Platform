@@ -730,6 +730,65 @@ class OpenStackImageViewSet(ViewSet):
                 status=status.HTTP_500_INTERNAL_SERVER_ERROR
             )
 
+    @action(detail=False, methods=['post'])
+    def prepare_upload(self, request):
+        """准备镜像上传（直接上传到 OpenStack）
+        
+        前端先调用此接口创建镜像元数据，获取上传 URL 和 token，
+        然后直接上传文件到 OpenStack Glance，绕过 Django 后端。
+        
+        返回:
+            image_id: 镜像 ID
+            upload_url: Glance 上传 URL
+            token: OpenStack 认证 token
+        """
+        try:
+            service = get_openstack_service()
+            data = request.data
+            
+            # 验证必要参数
+            name = data.get('name')
+            if not name:
+                return Response(
+                    {'error': '镜像名称不能为空'},
+                    status=status.HTTP_400_BAD_REQUEST
+                )
+            
+            # 创建镜像元数据（不包含文件）
+            image = service.create_image(
+                name=name,
+                disk_format=data.get('disk_format', 'qcow2'),
+                container_format=data.get('container_format', 'bare'),
+                visibility=data.get('visibility', 'private'),
+                min_disk=int(data.get('min_disk', 0)),
+                min_ram=int(data.get('min_ram', 0)),
+                properties=data.get('properties')
+            )
+            
+            # 获取 OpenStack 连接信息
+            conn = service.get_connection()
+            auth_token = conn.session.get_token()
+            
+            # 使用 Nginx 代理路径，前端通过代理访问 Glance
+            upload_url = f"/glance-proxy/v2/images/{image['id']}/file"
+            
+            logger.info(f"准备镜像上传: {name} ({image['id']})")
+            
+            return Response({
+                'image_id': image['id'],
+                'image_name': name,
+                'upload_url': upload_url,
+                'token': auth_token,
+                'disk_format': data.get('disk_format', 'qcow2'),
+            }, status=status.HTTP_201_CREATED)
+            
+        except Exception as e:
+            logger.error(f"准备镜像上传失败: {str(e)}")
+            return Response(
+                {'error': f'准备镜像上传失败: {str(e)}'},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+
 
 class OpenStackFlavorViewSet(ViewSet):
     """OpenStack规格管理视图集"""

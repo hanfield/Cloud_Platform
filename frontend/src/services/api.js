@@ -7,7 +7,7 @@ import axios from 'axios';
 // 创建axios实例
 const api = axios.create({
   baseURL: '/api',
-  timeout: 30000,
+  timeout: 600000,  // 10分钟超时，允许长时间操作如创建虚拟机
   headers: {
     'Content-Type': 'application/json'
   }

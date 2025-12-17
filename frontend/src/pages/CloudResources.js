@@ -2,7 +2,7 @@ import api from '../services/api';
 import AdminResourceCreate from '../components/AdminResourceCreate';
 import VMCreateWizard from '../components/VMCreateWizard';
 import VMDetailModal from '../components/VMDetailModal';
-import React, { useState, useEffect, Suspense, useCallback } from 'react';
+import React, { useState, useEffect, Suspense, useCallback, useRef } from 'react';
 import { Card, Row, Col, Statistic, Tabs, Table, Button, message, Tag, Space, Typography, Input, Switch, Popconfirm, Modal, Form, InputNumber, Divider, Upload, Select, Skeleton, Alert } from 'antd';
 import { ReloadOutlined, DesktopOutlined, PlayCircleOutlined, StopOutlined, DatabaseOutlined, CloudServerOutlined, SearchOutlined, EyeOutlined, DeleteOutlined, UploadOutlined, EditOutlined, BellOutlined, WarningOutlined, GlobalOutlined, EnvironmentOutlined, LockOutlined } from '@ant-design/icons';
 import { PieChart, Pie, Cell, ResponsiveContainer, Tooltip, Legend } from 'recharts';
@@ -49,7 +49,7 @@ const CloudResources = () => {
 
   // 使用缓存 hooks 获取 flavors、images、networks
   const { flavors } = useFlavors();
-  const { images } = useImages();
+  const { images, refresh: refreshImages } = useImages();
   const { networks } = useNetworks();
 
   // 管理员资源创建模态框状态
@@ -75,6 +75,10 @@ const CloudResources = () => {
   const [imageEditModalVisible, setImageEditModalVisible] = useState(false);
   const [selectedImage, setSelectedImage] = useState(null);
   const [imageForm] = Form.useForm();
+  const [imageUploading, setImageUploading] = useState(false);
+  const [uploadProgress, setUploadProgress] = useState(0);
+  const uploadXhrRef = useRef(null);  // 保存 XHR 对象用于取消上传
+  const [currentUploadImageId, setCurrentUploadImageId] = useState(null);  // 当前上传的镜像 ID
 
   // 3D地球状态
   const [vmGlobeData, setVmGlobeData] = useState([]);
@@ -436,23 +440,136 @@ const CloudResources = () => {
   const handleUploadImage = async () => {
     try {
       const values = await imageForm.validateFields();
-      const formData = new FormData();
-      formData.append('name', values.name);
-      formData.append('disk_format', values.disk_format || 'qcow2');
-      formData.append('min_disk', values.min_disk || 0);
-      formData.append('min_ram', values.min_ram || 0);
-      if (values.file && values.file.length > 0) {
-        formData.append('file', values.file[0].originFileObj);
+
+      if (!values.file || values.file.length === 0) {
+        message.error('请选择要上传的镜像文件');
+        return;
       }
 
-      await cloudService.createImage(formData);
-      message.success('镜像上传成功');
-      setImageUploadModalVisible(false);
-      imageForm.resetFields();
-      fetchAllData();
+      const file = values.file[0].originFileObj;
+      const fileSizeMB = (file.size / 1024 / 1024).toFixed(1);
+
+      // 设置上传状态
+      setImageUploading(true);
+      setUploadProgress(0);
+
+      // 用于更新进度消息的 key
+      const messageKey = 'uploadProgress';
+      message.loading({ content: '正在准备上传...', key: messageKey, duration: 0 });
+
+      try {
+        // 步骤1: 调用后端创建镜像元数据，获取上传URL和token
+        const prepareResponse = await api.post('/openstack/images/prepare_upload/', {
+          name: values.name,
+          disk_format: values.disk_format || 'qcow2',
+          min_disk: values.min_disk || 0,
+          min_ram: values.min_ram || 0,
+        });
+
+        if (!prepareResponse || !prepareResponse.image_id) {
+          throw new Error('准备上传失败：服务器返回数据格式错误');
+        }
+
+        const { image_id, upload_url, token } = prepareResponse;
+        setCurrentUploadImageId(image_id);  // 保存当前上传的镜像 ID
+
+        message.loading({ content: `正在上传镜像 (${fileSizeMB} MB) - 0%`, key: messageKey, duration: 0 });
+
+        // 步骤2: 直接上传文件到 OpenStack Glance
+        await new Promise((resolve, reject) => {
+          const xhr = new XMLHttpRequest();
+          uploadXhrRef.current = xhr;  // 保存 XHR 对象
+
+          // 进度监控
+          xhr.upload.onprogress = (event) => {
+            if (event.lengthComputable) {
+              const percent = Math.round((event.loaded / event.total) * 100);
+              setUploadProgress(percent);
+              message.loading({
+                content: `正在上传镜像 (${fileSizeMB} MB) - ${percent}%`,
+                key: messageKey,
+                duration: 0
+              });
+            }
+          };
+
+          xhr.onload = () => {
+            uploadXhrRef.current = null;
+            if (xhr.status === 204 || xhr.status === 200) {
+              resolve();
+            } else {
+              reject(new Error(`上传失败: HTTP ${xhr.status} - ${xhr.statusText}`));
+            }
+          };
+
+          xhr.onerror = () => {
+            uploadXhrRef.current = null;
+            reject(new Error('网络错误，上传失败'));
+          };
+
+          xhr.ontimeout = () => {
+            uploadXhrRef.current = null;
+            reject(new Error('上传超时'));
+          };
+
+          xhr.onabort = () => {
+            uploadXhrRef.current = null;
+            reject(new Error('上传已取消'));
+          };
+
+          xhr.open('PUT', upload_url);
+          xhr.setRequestHeader('Content-Type', 'application/octet-stream');
+          xhr.setRequestHeader('X-Auth-Token', token);
+          xhr.timeout = 3600000; // 1小时超时
+          xhr.send(file);
+        });
+
+        message.success({ content: '镜像上传成功！', key: messageKey, duration: 3 });
+        setImageUploadModalVisible(false);
+        imageForm.resetFields();
+        // 刷新镜像列表
+        await refreshImages(true);
+
+      } catch (uploadError) {
+        message.error({ content: `上传失败: ${uploadError.message}`, key: messageKey, duration: 5 });
+        console.error('上传错误:', uploadError);
+      } finally {
+        setImageUploading(false);
+        setUploadProgress(0);
+        setCurrentUploadImageId(null);
+        uploadXhrRef.current = null;
+      }
     } catch (error) {
-      message.error(`上传失败: ${error.message || '未知错误'}`);
+      message.error(`上传失败: ${error.response?.data?.error || error.message || '未知错误'}`);
+      setImageUploading(false);
     }
+  };
+
+  // 取消上传
+  const handleCancelUpload = async () => {
+    if (uploadXhrRef.current) {
+      uploadXhrRef.current.abort();
+      uploadXhrRef.current = null;
+    }
+
+    // 删除已创建的镜像元数据
+    if (currentUploadImageId) {
+      try {
+        await cloudService.deleteImage(currentUploadImageId);
+        message.info('上传已取消，镜像已删除');
+      } catch (e) {
+        console.error('删除镜像失败:', e);
+      }
+    } else {
+      message.info('上传已取消');
+    }
+
+    setImageUploading(false);
+    setUploadProgress(0);
+    setCurrentUploadImageId(null);
+    setImageUploadModalVisible(false);
+    imageForm.resetFields();
+    refreshImages(true);
   };
 
   const handleEditImage = async () => {
@@ -463,7 +580,8 @@ const CloudResources = () => {
       setImageEditModalVisible(false);
       imageForm.resetFields();
       setSelectedImage(null);
-      fetchAllData();
+      // 刷新镜像列表
+      await refreshImages(true);
     } catch (error) {
       message.error(`更新失败: ${error.message || '未知错误'}`);
     }
@@ -473,7 +591,8 @@ const CloudResources = () => {
     try {
       await cloudService.deleteImage(imageId);
       message.success('镜像删除成功');
-      fetchAllData();
+      // 刷新镜像列表
+      await refreshImages(true);
     } catch (error) {
       message.error(`删除失败: ${error.message || '未知错误'}`);
     }
@@ -694,16 +813,16 @@ const CloudResources = () => {
       );
 
       hide();
-      message.success(`${actionName}命令已发送！`, 2);
+      message.success(`${actionName}成功！`, 2);
 
-      // ✅ 操作成功：立即解锁按钮
+      // ✅ 操作成功：解锁按钮
       setVmOperations(prev => {
         const newSet = new Set(prev);
         newSet.delete(vmId);
         return newSet;
       });
 
-      // 静默刷新数据以获取真实状态（不显示loading）
+      // 后端已等待操作完成，现在刷新获取最新状态
       fetchAllData(false);
 
     } catch (error) {
@@ -1006,9 +1125,10 @@ const CloudResources = () => {
         return getTime(a) - getTime(b);
       },
       render: (_, record) => {
-        // OpenStack 返回 launched_at 时间戳
+        // OpenStack 返回 launched_at 时间戳（UTC 时间）
         if (record.launched_at && (record.status === 'ACTIVE' || record.status === 'running')) {
-          const launchedAt = moment(record.launched_at);
+          // 使用 moment.utc() 解析 UTC 时间
+          const launchedAt = moment.utc(record.launched_at);
           const now = moment();
           const duration = moment.duration(now.diff(launchedAt));
           const days = Math.floor(duration.asDays());
@@ -1095,9 +1215,10 @@ const CloudResources = () => {
         return new Date(timeA).getTime() - new Date(timeB).getTime();
       },
       render: (_, record) => {
-        // OpenStack uses 'created' field
+        // OpenStack uses 'created' field, time is in UTC
         const createdTime = record.created || record.created_at;
-        return createdTime ? moment(createdTime).format('YYYY-MM-DD HH:mm') : '-';
+        // 使用 moment.utc() 解析 UTC 时间，然后转换为本地时间
+        return createdTime ? moment.utc(createdTime).local().format('YYYY-MM-DD HH:mm') : '-';
       }
     },
     {
@@ -1168,6 +1289,14 @@ const CloudResources = () => {
                   loading={vmOperations.has(record.openstack_id)}
                 >
                   停止
+                </Button>
+                <Button
+                  size="small"
+                  onClick={() => handleVMPowerAction(record.openstack_id, 'pause', '暂停')}
+                  disabled={vmOperations.has(record.openstack_id)}
+                  loading={vmOperations.has(record.openstack_id)}
+                >
+                  暂停
                 </Button>
                 <Button
                   size="small"
@@ -2176,11 +2305,27 @@ const CloudResources = () => {
         open={imageUploadModalVisible}
         onOk={handleUploadImage}
         onCancel={() => {
-          setImageUploadModalVisible(false);
-          imageForm.resetFields();
+          if (imageUploading) {
+            // 上传中点击取消，确认是否取消
+            Modal.confirm({
+              title: '确认取消上传？',
+              content: '上传尚未完成，取消后已传输的数据将丢失。',
+              okText: '确认取消',
+              cancelText: '继续上传',
+              okButtonProps: { danger: true },
+              onOk: handleCancelUpload,
+            });
+          } else {
+            setImageUploadModalVisible(false);
+            imageForm.resetFields();
+          }
         }}
-        okText="上传"
-        cancelText="取消"
+        okText={imageUploading ? `上传中 ${uploadProgress}%` : "上传"}
+        cancelText={imageUploading ? "取消上传" : "取消"}
+        okButtonProps={{ loading: imageUploading, disabled: imageUploading }}
+        cancelButtonProps={{ danger: imageUploading }}
+        closable={!imageUploading}
+        maskClosable={!imageUploading}
       >
         <Form form={imageForm} layout="vertical">
           <Form.Item
@@ -2194,12 +2339,24 @@ const CloudResources = () => {
             label="磁盘格式"
             name="disk_format"
             initialValue="qcow2"
+            rules={[{ required: true, message: '请选择磁盘格式' }]}
           >
-            <Select>
-              <Select.Option value="qcow2">QCOW2</Select.Option>
-              <Select.Option value="raw">RAW</Select.Option>
-              <Select.Option value="iso">ISO</Select.Option>
-              <Select.Option value="vmdk">VMDK</Select.Option>
+            <Select onChange={() => {
+              // 当格式改变时，重新验证文件字段
+              const fileList = imageForm.getFieldValue('file');
+              if (fileList && fileList.length > 0) {
+                imageForm.validateFields(['file']);
+              }
+            }}>
+              <Select.Option value="iso">ISO - 光盘镜像</Select.Option>
+              <Select.Option value="qcow2">QCOW2 - QEMU 虚拟机</Select.Option>
+              <Select.Option value="raw">RAW - 原始格式</Select.Option>
+              <Select.Option value="vdi">VDI - VirtualBox 磁盘</Select.Option>
+              <Select.Option value="vhd">VHD - 虚拟硬盘</Select.Option>
+              <Select.Option value="vmdk">VMDK - VMware 磁盘</Select.Option>
+              <Select.Option value="aki">AKI - Amazon 内核</Select.Option>
+              <Select.Option value="ami">AMI - Amazon 机器镜像</Select.Option>
+              <Select.Option value="ari">ARI - Amazon Ramdisk</Select.Option>
             </Select>
           </Form.Item>
           <Form.Item
@@ -2226,11 +2383,42 @@ const CloudResources = () => {
               }
               return e && e.fileList;
             }}
+            rules={[
+              { required: true, message: '请选择镜像文件' },
+              {
+                validator: async (_, fileList) => {
+                  if (!fileList || fileList.length === 0) return;
+                  const file = fileList[0];
+                  const fileName = file.name.toLowerCase();
+                  const selectedFormat = imageForm.getFieldValue('disk_format') || 'qcow2';
+
+                  // 格式与扩展名映射
+                  const formatExtensions = {
+                    'iso': ['.iso'],
+                    'qcow2': ['.qcow2', '.qcow', '.img'],
+                    'raw': ['.raw', '.img', '.bin'],
+                    'vdi': ['.vdi'],
+                    'vhd': ['.vhd', '.vhdx'],
+                    'vmdk': ['.vmdk'],
+                    'aki': ['.aki', '.img'],
+                    'ami': ['.ami', '.img'],
+                    'ari': ['.ari', '.img'],
+                  };
+
+                  const validExtensions = formatExtensions[selectedFormat] || [];
+                  const isValid = validExtensions.some(ext => fileName.endsWith(ext));
+
+                  if (!isValid) {
+                    throw new Error(`文件格式不匹配！${selectedFormat.toUpperCase()} 格式应使用 ${validExtensions.join(', ')} 扩展名`);
+                  }
+                }
+              }
+            ]}
           >
             <Upload
               beforeUpload={() => false}
               maxCount={1}
-              accept=".qcow2,.raw,.iso,.img"
+              accept=".qcow2,.qcow,.raw,.iso,.img,.vdi,.vhd,.vhdx,.vmdk,.aki,.ami,.ari,.bin"
             >
               <Button icon={<UploadOutlined />}>选择文件</Button>
             </Upload>

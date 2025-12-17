@@ -20,7 +20,9 @@ echo "=========================================="
 
 # 1. 使用 rsync 同步文件 (排除不需要的文件)
 # --delete 会删除目标目录中源目录没有的文件
+# 重要: 必须排除 .svn 目录，否则会破坏 SVN 工作副本！
 rsync -av --delete \
+    --exclude='.svn' \
     --exclude='.git' \
     --exclude='.idea' \
     --exclude='.venv' \
